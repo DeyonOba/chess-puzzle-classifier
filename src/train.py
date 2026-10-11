@@ -7,7 +7,8 @@ Examples:
     # position-only baseline from the same file
     python -m src.train --h5 data/puzzle_boards.h5 --splits data/splits.npz --max-positions 1 --run-name pos_only
 
-Each run writes runs/<run-name>/{config.json, history.jsonl, best.pt, last.pt, per_class_f1.json}.
+Each run writes runs/<run-name>/{config.json, history.jsonl, best.pt, last.pt, per_class_f1.json,
+thresholds.json}. Model selection uses val macro-F1 with per-class thresholds tuned in-sample on val.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ from src.data.dataset import PuzzleSequenceDataset
 from src.models.puzzle_classifier import PuzzleSequenceClassifier
 from src.utils.losses import LOSS_NAMES, build_loss
 from src.utils.metrics import MultiLabelPuzzleMetrics
+from src.utils.thresholds import f1_at_thresholds, tune_thresholds
 
 
 def pick_device(name: str) -> torch.device:
@@ -40,20 +42,38 @@ def pick_device(name: str) -> torch.device:
 
 
 @torch.no_grad()
-def evaluate(model, loader, metrics: MultiLabelPuzzleMetrics, device, loss_fn, limit_batches=None):
+def predict(model, loader, device, limit_batches=None):
+    """Returns (probs, targets) as float32 / uint8 numpy arrays over the loader."""
     model.eval()
-    metrics.reset()
-    total_loss, n = 0.0, 0
+    probs, targets_all = [], []
     for i, (boards, lengths, targets) in enumerate(loader):
         if limit_batches is not None and i >= limit_batches:
             break
-        boards, lengths, targets = boards.to(device, non_blocking=True), lengths.to(device), targets.to(device)
-        logits = model(boards, lengths)
-        total_loss += loss_fn(logits, targets).item() * len(targets)
-        n += len(targets)
-        metrics.update(logits.float().cpu(), targets.cpu())
+        logits = model(boards.to(device, non_blocking=True), lengths.to(device))
+        probs.append(torch.sigmoid(logits.float()).cpu().numpy())
+        targets_all.append(targets.numpy().astype(np.uint8))
+    return np.concatenate(probs), np.concatenate(targets_all)
+
+
+@torch.no_grad()
+def evaluate(model, loader, metrics: MultiLabelPuzzleMetrics, device, loss_fn, limit_batches=None):
+    """Metrics at the fixed 0.5 threshold plus in-sample tuned per-class thresholds.
+
+    Keys prefixed `tuned_` are optimistic (thresholds fitted on the same data);
+    use src.evaluate for val-tuned / test-scored numbers.
+    """
+    probs, targets = predict(model, loader, device, limit_batches)
+    metrics.reset()
+    logits = torch.logit(torch.from_numpy(probs).clamp(1e-7, 1 - 1e-7))
+    t = torch.from_numpy(targets)
+    metrics.update(logits, t)
     out = metrics.compute()
-    out["loss"] = total_loss / max(n, 1)
+    out["loss"] = loss_fn(logits, t.float()).item()
+    thresholds = tune_thresholds(probs, targets)
+    tuned = f1_at_thresholds(probs, targets, thresholds)
+    out.update({f"tuned_{k}": v for k, v in tuned.items() if k != "per_class_f1"})
+    out["_thresholds"] = thresholds
+    out["_tuned_per_class_f1"] = tuned["per_class_f1"]
     return out
 
 
@@ -78,7 +98,7 @@ def main():
     p.add_argument("--limit-batches", type=int, default=None, help="cap train batches per epoch (bounded runs / smoke tests)")
     p.add_argument("--val-batches", type=int, default=None, help="cap val batches (default: same as --limit-batches)")
     p.add_argument("--amp", action="store_true", help="bf16 autocast (CUDA only)")
-    p.add_argument("--loss", choices=LOSS_NAMES, default="bce")
+    p.add_argument("--loss", choices=LOSS_NAMES, default="asl")
     p.add_argument("--pos-weight-cap", type=float, default=20.0, help="weighted_bce: clip pos_weight to [1, cap]")
     p.add_argument("--pos-weight-power", type=float, default=1.0, help="weighted_bce: (neg/pos)**power; 0.5 = sqrt")
     p.add_argument("--focal-gamma", type=float, default=2.0)
@@ -147,22 +167,30 @@ def main():
 
         val = evaluate(model, val_loader, metrics, device, val_loss_fn,
                        args.val_batches if args.val_batches is not None else args.limit_batches)
+        thresholds = val.pop("_thresholds")
+        tuned_per_class = val.pop("_tuned_per_class_f1")
         record = {"epoch": epoch, "train_loss": running / max(seen, 1), "epoch_sec": time.time() - t0,
                   **{f"val_{k}": v for k, v in val.items()}}
         history.write(json.dumps(record) + "\n"); history.flush()
         print(f"epoch {epoch}: train_loss={record['train_loss']:.4f} val_loss={val['loss']:.4f} "
               f"micro_f1={val['micro_f1']:.4f} macro_f1={val['macro_f1']:.4f} auprc={val['macro_auprc']:.4f} "
-              f"exact={val['exact_match']:.4f} ({record['epoch_sec']:.0f}s)")
+              f"exact={val['exact_match']:.4f} | tuned macro_f1={val['tuned_macro_f1']:.4f} "
+              f"micro_f1={val['tuned_micro_f1']:.4f} ({record['epoch_sec']:.0f}s)")
 
-        state = {"model": model.state_dict(), "config": config, "epoch": epoch, "val": val}
+        state = {"model": model.state_dict(), "config": config, "epoch": epoch, "val": val,
+                 "thresholds": thresholds.tolist()}
         torch.save(state, run_dir / "last.pt")
-        if val["macro_f1"] > best_macro_f1:
-            best_macro_f1 = val["macro_f1"]
+        # model selection on the tuned macro-F1 (threshold-robust); 0.5-threshold numbers are still logged
+        if val["tuned_macro_f1"] > best_macro_f1:
+            best_macro_f1 = val["tuned_macro_f1"]
             torch.save(state, run_dir / "best.pt")
             per_class = metrics.compute_per_class_f1().tolist()
             (run_dir / "per_class_f1.json").write_text(json.dumps(dict(zip(dataset.labels, per_class)), indent=2))
+            (run_dir / "thresholds.json").write_text(json.dumps(
+                {l: {"threshold": float(th), "tuned_f1": float(f)} for l, th, f in zip(dataset.labels, thresholds, tuned_per_class)},
+                indent=2))
     history.close()
-    print(f"best val macro_f1={best_macro_f1:.4f} -> {run_dir}")
+    print(f"best val tuned macro_f1={best_macro_f1:.4f} -> {run_dir}")
 
 
 if __name__ == "__main__":
