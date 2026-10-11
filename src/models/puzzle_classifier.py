@@ -2,12 +2,45 @@ import torch
 import torch.nn as nn
 
 from src.models.backbones.resnet_board import ResNetBoardEncoder
+from src.utils.label_groups import LabelLayout
+
+
+class GroupedHead(nn.Module):
+    """Softmax per mutually exclusive group (with a 'none' class) + sigmoid for free labels.
+
+    Output layout is (B, L + G): the first L columns line up with the flat label
+    list (each grouped label's column is its logit inside its group's softmax),
+    the last G columns are each group's 'none' logit. `probs()` maps this to a
+    (B, L) per-label probability vector, so thresholding / evaluation code that
+    expects one score per label works unchanged.
+    """
+
+    def __init__(self, hidden_dim: int, layout: LabelLayout, dropout: float = 0.3):
+        super().__init__()
+        self.layout = layout
+        self.mlp = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.ReLU(inplace=True), nn.Dropout(p=dropout))
+        self.out = nn.Linear(hidden_dim, layout.num_labels + layout.num_groups)
+
+    def forward(self, pooled: torch.Tensor) -> torch.Tensor:
+        return self.out(self.mlp(pooled))
+
+    def group_logits(self, raw: torch.Tensor) -> list[torch.Tensor]:
+        L = self.layout.num_labels
+        return [torch.cat([raw[:, idx], raw[:, L + g : L + g + 1]], dim=1) for g, (_, idx) in enumerate(self.layout.groups)]
+
+    def probs(self, raw: torch.Tensor) -> torch.Tensor:
+        L = self.layout.num_labels
+        out = torch.sigmoid(raw[:, :L])
+        for (_, idx), gl in zip(self.layout.groups, self.group_logits(raw)):
+            out[:, idx] = torch.softmax(gl, dim=1)[:, : len(idx)]
+        return out
 
 
 class PuzzleSequenceClassifier(nn.Module):
     """Shared ResNet over every position of the solution line, masked pooling, sigmoid head.
 
-    forward(boards (B, T, 18, 8, 8), lengths (B,)) -> logits (B, num_labels)
+    forward(boards (B, T, 18, 8, 8), lengths (B,)) -> raw head output: (B, num_labels) for the
+    flat head, (B, num_labels + num_groups) for the grouped head. Use probs() for per-label scores.
 
     Only the `lengths[b]` valid positions of each sample are encoded (padded
     positions are skipped, not just masked), so compute scales with the real
@@ -25,6 +58,8 @@ class PuzzleSequenceClassifier(nn.Module):
         max_positions: int = 12,
         pooling: str = "mean",
         dropout: float = 0.3,
+        head: str = "flat",
+        labels: list[str] | None = None,
     ):
         super().__init__()
         if pooling not in ("mean", "attention"):
@@ -34,12 +69,24 @@ class PuzzleSequenceClassifier(nn.Module):
         self.pooling = pooling
         if pooling == "attention":
             self.attn = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.Tanh(), nn.Linear(hidden_dim, 1))
-        self.head = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(inplace=True),
-            nn.Dropout(p=dropout),
-            nn.Linear(hidden_dim, num_labels),
-        )
+        self.head_type = head
+        if head == "flat":
+            self.head = nn.Sequential(
+                nn.Linear(hidden_dim, hidden_dim),
+                nn.ReLU(inplace=True),
+                nn.Dropout(p=dropout),
+                nn.Linear(hidden_dim, num_labels),
+            )
+        elif head == "grouped":
+            if labels is None or len(labels) != num_labels:
+                raise ValueError("head='grouped' needs the label list")
+            self.head = GroupedHead(hidden_dim, LabelLayout(labels), dropout)
+        else:
+            raise ValueError(f"head must be 'flat' or 'grouped', got {head!r}")
+
+    def probs(self, raw: torch.Tensor) -> torch.Tensor:
+        """Per-label probabilities (B, L) from the raw head output."""
+        return self.head.probs(raw) if self.head_type == "grouped" else torch.sigmoid(raw)
 
     def forward(self, boards: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
         B, T = boards.shape[:2]

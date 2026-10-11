@@ -26,7 +26,7 @@ from tqdm import tqdm
 from src.data.datamodule import load_splits, make_loader
 from src.data.dataset import PuzzleSequenceDataset
 from src.models.puzzle_classifier import PuzzleSequenceClassifier
-from src.utils.losses import LOSS_NAMES, build_loss
+from src.utils.losses import LOSS_NAMES, GroupedLoss, build_loss
 from src.utils.metrics import MultiLabelPuzzleMetrics
 from src.utils.thresholds import f1_at_thresholds, tune_thresholds
 
@@ -49,8 +49,8 @@ def predict(model, loader, device, limit_batches=None):
     for i, (boards, lengths, targets) in enumerate(loader):
         if limit_batches is not None and i >= limit_batches:
             break
-        logits = model(boards.to(device, non_blocking=True), lengths.to(device))
-        probs.append(torch.sigmoid(logits.float()).cpu().numpy())
+        raw = model(boards.to(device, non_blocking=True), lengths.to(device))
+        probs.append(model.probs(raw.float()).cpu().numpy())
         targets_all.append(targets.numpy().astype(np.uint8))
     return np.concatenate(probs), np.concatenate(targets_all)
 
@@ -85,6 +85,8 @@ def main():
     p.add_argument("--runs-dir", default="runs")
     p.add_argument("--max-positions", type=int, default=None, help="1 = position-only; default = all in file")
     p.add_argument("--pooling", choices=["mean", "attention"], default="mean")
+    p.add_argument("--head", choices=["flat", "grouped"], default="flat")
+    p.add_argument("--group-weight", type=float, default=1.0, help="grouped head: weight of the group CE terms")
     p.add_argument("--hidden-dim", type=int, default=256)
     p.add_argument("--res-blocks", type=int, default=6)
     p.add_argument("--dropout", type=float, default=0.3)
@@ -122,13 +124,19 @@ def main():
     model = PuzzleSequenceClassifier(
         num_labels=dataset.num_labels, hidden_dim=args.hidden_dim, num_res_blocks=args.res_blocks,
         max_positions=dataset.max_positions, pooling=args.pooling, dropout=args.dropout,
+        head=args.head, labels=dataset.labels,
     ).to(device)
-    train_targets = dataset.read_targets()[splits["train"]] if args.loss == "weighted_bce" else None
+    needs_targets = args.loss == "weighted_bce" or args.head == "grouped"
+    train_targets = dataset.read_targets()[splits["train"]] if needs_targets else None
+    free_targets = train_targets[:, model.head.layout.free] if args.head == "grouped" and train_targets is not None else train_targets
     loss_fn = build_loss(
-        args.loss, train_targets, args.pos_weight_cap, args.pos_weight_power, args.focal_gamma, args.focal_alpha,
+        args.loss, free_targets, args.pos_weight_cap, args.pos_weight_power, args.focal_gamma, args.focal_alpha,
         args.asl_gamma_neg, args.asl_gamma_pos, args.asl_clip,
-    ).to(device)
-    del train_targets
+    )
+    if args.head == "grouped":
+        loss_fn = GroupedLoss(model.head, loss_fn, train_targets, args.pos_weight_cap, args.pos_weight_power, args.group_weight)
+    loss_fn = loss_fn.to(device)
+    del train_targets, free_targets
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     steps_per_epoch = len(train_loader) if args.limit_batches is None else min(len(train_loader), args.limit_batches)
     scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=args.lr, total_steps=steps_per_epoch * args.epochs)

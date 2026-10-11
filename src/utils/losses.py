@@ -97,3 +97,36 @@ def build_loss(
     if name == "asl":
         return AsymmetricLoss(asl_gamma_neg, asl_gamma_pos, asl_clip)
     raise ValueError(f"unknown loss {name!r}; choose from {LOSS_NAMES}")
+
+
+class GroupedLoss(nn.Module):
+    """Cross-entropy per exclusive group (incl. 'none') + a sigmoid loss on the free labels.
+
+    Group class weights follow the same clip((n_total/n_class)**power, 1, cap)
+    recipe as pos_weight so rare mate patterns are not drowned by 'none'.
+    """
+
+    def __init__(self, head, free_loss: nn.Module, train_targets: np.ndarray | None = None,
+                 cap: float = 20.0, power: float = 0.5, group_weight: float = 1.0):
+        super().__init__()
+        self.head = head
+        self.layout = head.layout
+        self.free_loss = free_loss
+        self.group_weight = group_weight
+        self.class_weights = nn.ParameterList()
+        for _, idx in self.layout.groups:
+            k = len(idx) + 1
+            if train_targets is None:
+                w = torch.ones(k)
+            else:
+                sub = train_targets[:, idx]
+                counts = np.append(sub.sum(0), (sub.sum(1) == 0).sum()).astype(np.float64)
+                w = torch.tensor(np.clip((len(sub) / np.maximum(counts, 1)) ** power, 1.0, cap), dtype=torch.float32)
+            self.class_weights.append(nn.Parameter(w, requires_grad=False))
+
+    def forward(self, raw: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        free = self.layout.free
+        loss = self.free_loss(raw[:, free], targets[:, free])
+        for gl, cls, w in zip(self.head.group_logits(raw), self.layout.group_targets(targets), self.class_weights):
+            loss = loss + self.group_weight * F.cross_entropy(gl, cls, weight=w) / self.layout.num_groups
+        return loss

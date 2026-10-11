@@ -28,6 +28,7 @@ def load_model(run_dir: pathlib.Path, device, checkpoint="best.pt"):
     model = PuzzleSequenceClassifier(
         num_labels=cfg["num_labels"], hidden_dim=cfg["hidden_dim"], num_res_blocks=cfg["res_blocks"],
         max_positions=cfg["T"], pooling=cfg["pooling"], dropout=cfg["dropout"],
+        head=cfg.get("head", "flat"), labels=cfg["labels"],
     )
     model.load_state_dict(state["model"])
     return model.to(device).eval(), cfg, state
