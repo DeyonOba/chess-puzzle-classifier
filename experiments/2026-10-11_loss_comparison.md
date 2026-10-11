@@ -44,10 +44,57 @@ Mean per-class F1 by label frequency band:
   not ranking quality. Per-class threshold tuning should be applied before
   drawing a final conclusion.
 
-## Decision (pending approval)
+## Tuned thresholds (added later the same day, commit a934f77)
 
-Recommend ASL as the default training loss, and re-run this comparison with
-per-class thresholds tuned on validation.
+Same four checkpoints, no retraining. Per-class thresholds were fitted to
+maximise F1 on 99,840 val puzzles and then applied to 99,840 *test* puzzles.
+The 0.5 rows are the same checkpoints scored on test at the fixed threshold.
+
+| loss | threshold | micro-F1 | macro-F1 | macro-P | macro-R | exact match |
+|---|---|---|---|---|---|---|
+| bce | fixed 0.5 | 0.788 | 0.211 | 0.274 | 0.201 | 0.238 |
+| bce | val-tuned | 0.671 | 0.331 | 0.302 | 0.421 | 0.078 |
+| weighted_bce | fixed 0.5 | 0.609 | 0.324 | 0.271 | 0.531 | 0.046 |
+| weighted_bce | val-tuned | 0.714 | **0.376** | **0.340** | 0.461 | **0.116** |
+| focal | fixed 0.5 | **0.793** | 0.233 | 0.306 | 0.220 | **0.250** |
+| focal | val-tuned | 0.695 | 0.359 | 0.333 | 0.441 | 0.107 |
+| asl | fixed 0.5 | 0.751 | 0.302 | 0.288 | 0.358 | 0.102 |
+| asl | val-tuned | 0.708 | 0.358 | 0.328 | 0.445 | 0.103 |
+
+Mean per-class F1 by band, fixed 0.5 / val-tuned:
+
+| band | n | bce | weighted_bce | focal | asl |
+|---|---|---|---|---|---|
+| common (>5%) | 19 | 0.594 / 0.701 | 0.676 / 0.707 | 0.620 / 0.711 | 0.682 / 0.712 |
+| mid (0.5-5%) | 26 | 0.133 / 0.325 | 0.309 / **0.393** | 0.173 / 0.368 | 0.291 / 0.361 |
+| rare (<0.5%) | 25 | 0.000 / 0.057 | 0.072 / **0.108** | 0.003 / 0.081 | 0.024 / 0.086 |
+
+Labels still at tuned F1 < 0.05: bce 19, focal 14, asl 15, weighted_bce 9.
+interference, equality, enPassant, collinearMove and castling are dead for
+every loss at this budget.
+
+### What tuning changes
+
+- Thresholds are worth more than the loss choice: +0.12 macro-F1 for bce,
+  +0.13 for focal, +0.06 for asl, +0.05 for weighted_bce. On common labels
+  all four losses converge to 0.70-0.71 once tuned.
+- The untuned ranking flips. weighted_bce (cap 20) is best after tuning at
+  0.376 macro-F1, with the best precision and exact match of the tuned rows
+  and the most live rare labels. asl and focal tie at 0.358-0.359; bce 0.331.
+- The gap between weighted_bce and asl/focal (0.018) is about the noise
+  floor for a single seed at 7% of an epoch.
+- F1-optimal thresholds trade precision for recall per label, so micro-F1
+  and exact match fall for bce/focal/asl relative to their 0.5 rows. If the
+  headline metric were micro-F1 or exact match, focal at 0.5 would win.
+  Macro-F1 is the headline here because rare themes are the point.
+
+## Decision
+
+- Per-class threshold tuning is on by default (train.py selects on tuned
+  macro-F1, src/evaluate.py reports val-tuned test numbers).
+- Default loss set to asl (commit a934f77) on the untuned results. With
+  tuned thresholds weighted_bce is marginally ahead; whether to switch the
+  default, or confirm with a second seed / larger budget, is pending.
 
 ## Caveats
 
