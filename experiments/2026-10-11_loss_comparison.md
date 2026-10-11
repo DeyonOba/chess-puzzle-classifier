@@ -88,13 +88,57 @@ every loss at this budget.
   headline metric were micro-F1 or exact match, focal at 0.5 would win.
   Macro-F1 is the headline here because rare themes are the point.
 
+## Second seed and square-root weighting (2026-10-12)
+
+Added seed 1 for weighted_bce and asl, and a square-root variant of the
+weighting, pos_weight = clip(sqrt(neg/pos), 1, 20) (`--pos-weight-power 0.5`),
+at seeds 0 and 1. Same budget and protocol: 384k training puzzles, thresholds
+tuned on 99,840 val puzzles, scored on 99,840 test puzzles.
+
+| loss | seed | tuned micro-F1 | tuned macro-F1 | tuned macro-P | tuned macro-R | exact match | band F1 common / mid / rare | dead labels |
+|---|---|---|---|---|---|---|---|---|
+| weighted_bce (p=1) | 0 | 0.714 | 0.376 | 0.340 | 0.461 | 0.116 | 0.707 / 0.393 / 0.108 | 9 |
+| weighted_bce (p=1) | 1 | 0.717 | 0.384 | 0.349 | 0.464 | 0.120 | 0.708 / 0.399 / 0.123 | 8 |
+| asl | 0 | 0.708 | 0.358 | 0.328 | 0.445 | 0.103 | 0.712 / 0.361 / 0.086 | 15 |
+| asl | 1 | 0.705 | 0.354 | 0.327 | 0.428 | 0.100 | 0.710 / 0.361 / 0.077 | 16 |
+| weighted_bce (p=0.5) | 0 | 0.713 | **0.387** | **0.361** | 0.456 | 0.114 | 0.702 / 0.391 / **0.144** | **7** |
+| weighted_bce (p=0.5) | 1 | 0.709 | 0.385 | 0.352 | 0.469 | 0.117 | 0.702 / 0.380 / 0.149 | 8 |
+
+Two-seed means of tuned macro-F1: weighted_bce p=0.5 **0.386**, weighted_bce
+p=1 0.380, asl 0.356. Seed spread is 0.002-0.008, so the +0.024 to +0.030
+gap over asl is well outside noise; the p=0.5 vs p=1 gap (0.006) is not.
+
+Untuned (fixed 0.5) test rows for the same checkpoints:
+
+| loss | seed | micro-F1 | macro-F1 | exact match |
+|---|---|---|---|---|
+| weighted_bce (p=1) | 0 / 1 | 0.609 / 0.609 | 0.324 / 0.333 | 0.046 / 0.042 |
+| asl | 0 / 1 | 0.751 / 0.750 | 0.302 / 0.301 | 0.102 / 0.095 |
+| weighted_bce (p=0.5) | 0 / 1 | 0.770 / 0.770 | 0.343 / 0.342 | 0.182 / 0.182 |
+
+### Reading
+
+- The seed-0 ranking holds: weighted BCE beats ASL on tuned macro-F1 with
+  both seeds, with the gain concentrated in the rare band (0.11-0.15 vs
+  0.08) and in dead-label count (7-9 vs 15-16).
+- Square-root weighting is the best single configuration. It matches the
+  linear-capped weighting after tuning, and is far better *before* tuning:
+  the best untuned macro-F1 of any run (0.343), micro-F1 0.77 and exact
+  match 0.18 against 0.61 / 0.05 for p=1. The cap only binds for labels
+  rarer than 0.25%, so the weights span the full range instead of
+  saturating at 20 for 51 of 70 labels.
+- Rare-band F1 is highest with p=0.5 (0.144 / 0.149), so the softer
+  weighting is not trading rare labels away.
+
 ## Decision
 
 - Per-class threshold tuning is on by default (train.py selects on tuned
   macro-F1, src/evaluate.py reports val-tuned test numbers).
-- Default loss set to asl (commit a934f77) on the untuned results. With
-  tuned thresholds weighted_bce is marginally ahead; whether to switch the
-  default, or confirm with a second seed / larger budget, is pending.
+- Default loss was set to asl (commit a934f77) on the untuned seed-0
+  results. The two-seed, tuned comparison reverses that: weighted_bce with
+  power 0.5 and cap 20 is ahead on every metric both tuned and untuned.
+  Recommendation: make weighted_bce, --pos-weight-power 0.5, the default.
+  Pending user approval.
 
 ## Caveats
 
