@@ -75,7 +75,8 @@ def main():
     p.add_argument("--num-workers", type=int, default=4)
     p.add_argument("--device", default="auto")
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--limit-batches", type=int, default=None, help="cap train/val batches per epoch (smoke tests)")
+    p.add_argument("--limit-batches", type=int, default=None, help="cap train batches per epoch (bounded runs / smoke tests)")
+    p.add_argument("--val-batches", type=int, default=None, help="cap val batches (default: same as --limit-batches)")
     p.add_argument("--amp", action="store_true", help="bf16 autocast (CUDA only)")
     p.add_argument("--loss", choices=LOSS_NAMES, default="bce")
     p.add_argument("--pos-weight-cap", type=float, default=20.0, help="weighted_bce: clip pos_weight to [1, cap]")
@@ -144,7 +145,8 @@ def main():
             if step % 20 == 0:
                 bar.set_postfix(loss=f"{running / seen:.4f}", ips=f"{seen / (time.time() - t0):.0f}/s")
 
-        val = evaluate(model, val_loader, metrics, device, val_loss_fn, args.limit_batches)
+        val = evaluate(model, val_loader, metrics, device, val_loss_fn,
+                       args.val_batches if args.val_batches is not None else args.limit_batches)
         record = {"epoch": epoch, "train_loss": running / max(seen, 1), "epoch_sec": time.time() - t0,
                   **{f"val_{k}": v for k, v in val.items()}}
         history.write(json.dumps(record) + "\n"); history.flush()
