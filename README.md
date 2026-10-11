@@ -31,8 +31,11 @@ Add `--limit 100000` to preencode for a dev subset (see `data/dev/`).
   `data/splits.npz` separately from the encoded boards.
 - **Model**: one ResNet encodes every position with shared weights, a learned
   ply embedding is added, masked mean (or attention) pooling, MLP sigmoid head.
-- **Loss**: plain BCE-with-logits baseline; weighting / focal variants and a
-  grouped (softmax-per-exclusive-group) head are planned experiments.
+- **Loss**: BCE-with-logits with per-label `pos_weight = clip(sqrt(neg/pos), 1, 20)`
+  (`--loss weighted_bce --pos-weight-power 0.5`), chosen over plain BCE, focal
+  and ASL in `experiments/2026-10-11_loss_comparison.md`. Per-class decision
+  thresholds are tuned on validation (`src/evaluate.py`). A grouped
+  (softmax-per-exclusive-group) head is a planned experiment.
 
 ## Project structure
 

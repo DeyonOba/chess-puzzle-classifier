@@ -137,8 +137,8 @@ Untuned (fixed 0.5) test rows for the same checkpoints:
 - Default loss was set to asl (commit a934f77) on the untuned seed-0
   results. The two-seed, tuned comparison reverses that: weighted_bce with
   power 0.5 and cap 20 is ahead on every metric both tuned and untuned.
-  Recommendation: make weighted_bce, --pos-weight-power 0.5, the default.
-  Pending user approval.
+  Default switched to weighted_bce, --pos-weight-power 0.5, cap 20
+  (approved 2026-10-12).
 
 ## Caveats
 

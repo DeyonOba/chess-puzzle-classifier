@@ -23,7 +23,7 @@ import torch.nn.functional as F
 LOSS_NAMES = ("bce", "weighted_bce", "focal", "asl")
 
 
-def compute_pos_weight(targets: np.ndarray, cap: float = 20.0, power: float = 1.0) -> torch.Tensor:
+def compute_pos_weight(targets: np.ndarray, cap: float = 20.0, power: float = 0.5) -> torch.Tensor:
     """Per-label positive weight from a (n, L) 0/1 matrix of training targets.
 
     pos_weight_j = clip((neg_j / pos_j) ** power, 1, cap). Labels with no
@@ -79,7 +79,7 @@ def build_loss(
     name: str,
     train_targets: np.ndarray | None = None,
     pos_weight_cap: float = 20.0,
-    pos_weight_power: float = 1.0,
+    pos_weight_power: float = 0.5,
     focal_gamma: float = 2.0,
     focal_alpha: float | None = None,
     asl_gamma_neg: float = 4.0,
