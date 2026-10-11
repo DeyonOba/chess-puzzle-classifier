@@ -25,6 +25,7 @@ from tqdm import tqdm
 from src.data.datamodule import load_splits, make_loader
 from src.data.dataset import PuzzleSequenceDataset
 from src.models.puzzle_classifier import PuzzleSequenceClassifier
+from src.utils.losses import LOSS_NAMES, build_loss
 from src.utils.metrics import MultiLabelPuzzleMetrics
 
 
@@ -76,6 +77,14 @@ def main():
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--limit-batches", type=int, default=None, help="cap train/val batches per epoch (smoke tests)")
     p.add_argument("--amp", action="store_true", help="bf16 autocast (CUDA only)")
+    p.add_argument("--loss", choices=LOSS_NAMES, default="bce")
+    p.add_argument("--pos-weight-cap", type=float, default=20.0, help="weighted_bce: clip pos_weight to [1, cap]")
+    p.add_argument("--pos-weight-power", type=float, default=1.0, help="weighted_bce: (neg/pos)**power; 0.5 = sqrt")
+    p.add_argument("--focal-gamma", type=float, default=2.0)
+    p.add_argument("--focal-alpha", type=float, default=None)
+    p.add_argument("--asl-gamma-neg", type=float, default=4.0)
+    p.add_argument("--asl-gamma-pos", type=float, default=1.0)
+    p.add_argument("--asl-clip", type=float, default=0.05)
     args = p.parse_args()
 
     torch.manual_seed(args.seed)
@@ -93,11 +102,17 @@ def main():
         num_labels=dataset.num_labels, hidden_dim=args.hidden_dim, num_res_blocks=args.res_blocks,
         max_positions=dataset.max_positions, pooling=args.pooling, dropout=args.dropout,
     ).to(device)
-    loss_fn = nn.BCEWithLogitsLoss()
+    train_targets = dataset.read_targets()[splits["train"]] if args.loss == "weighted_bce" else None
+    loss_fn = build_loss(
+        args.loss, train_targets, args.pos_weight_cap, args.pos_weight_power, args.focal_gamma, args.focal_alpha,
+        args.asl_gamma_neg, args.asl_gamma_pos, args.asl_clip,
+    ).to(device)
+    del train_targets
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     steps_per_epoch = len(train_loader) if args.limit_batches is None else min(len(train_loader), args.limit_batches)
     scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=args.lr, total_steps=steps_per_epoch * args.epochs)
     metrics = MultiLabelPuzzleMetrics(dataset.num_labels)
+    val_loss_fn = nn.BCEWithLogitsLoss()  # val loss is always plain BCE so runs with different train losses are comparable
     use_amp = args.amp and device.type == "cuda"
 
     config = {**vars(args), "device": str(device), "num_labels": dataset.num_labels, "labels": dataset.labels,
@@ -129,7 +144,7 @@ def main():
             if step % 20 == 0:
                 bar.set_postfix(loss=f"{running / seen:.4f}", ips=f"{seen / (time.time() - t0):.0f}/s")
 
-        val = evaluate(model, val_loader, metrics, device, loss_fn, args.limit_batches)
+        val = evaluate(model, val_loader, metrics, device, val_loss_fn, args.limit_batches)
         record = {"epoch": epoch, "train_loss": running / max(seen, 1), "epoch_sec": time.time() - t0,
                   **{f"val_{k}": v for k, v in val.items()}}
         history.write(json.dumps(record) + "\n"); history.flush()
