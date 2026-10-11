@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import pathlib
 from collections import Counter
 from multiprocessing import Pool
@@ -109,10 +110,10 @@ def build_hdf5_dataset(
     with h5py.File(hdf5_out_path, "w") as h5f, Pool(workers, _init_worker, (label_index, max_positions)) as pool:
         d_boards = h5f.create_dataset(
             "boards", shape=(num_rows, max_positions, NUM_PLANES), dtype=np.uint64,
-            chunks=(4096, max_positions, NUM_PLANES), compression="lzf",
+            chunks=(min(4096, num_rows), max_positions, NUM_PLANES), compression="lzf",
         )
         d_lengths = h5f.create_dataset("lengths", shape=(num_rows,), dtype=np.uint8)
-        d_targets = h5f.create_dataset("targets", shape=(num_rows, L), dtype=np.uint8, chunks=(65536, L))
+        d_targets = h5f.create_dataset("targets", shape=(num_rows, L), dtype=np.uint8, chunks=(min(65536, num_rows), L))
         d_plies = h5f.create_dataset("plies", shape=(num_rows,), dtype=np.uint8)
         d_rating = h5f.create_dataset("rating", shape=(num_rows,), dtype=np.int16)
         d_ids = h5f.create_dataset("puzzle_id", shape=(num_rows,), dtype="S8")
@@ -125,17 +126,33 @@ def build_hdf5_dataset(
                 chunk["Themes"] = chunk["Themes"].fillna("")
                 yield list(chunk[CSV_COLUMNS].itertuples(index=False, name=None))
 
+        def write(result, offset):
+            boards, lengths, targets, plies, ratings, ids = result
+            n = len(lengths)
+            sl = slice(offset, offset + n)
+            d_boards[sl] = boards
+            d_lengths[sl] = lengths
+            d_targets[sl] = targets
+            d_plies[sl] = plies
+            d_rating[sl] = ratings
+            d_ids[sl] = ids
+            return n
+
+        # Bounded submission: Pool.imap would read the whole CSV into its task queue
+        # ahead of the workers, which does not fit in memory at 6M rows.
+        from collections import deque
+        max_in_flight = 2 * (workers or os.cpu_count() or 1)
+        pending: deque = deque()
         offset = 0
         with tqdm(total=num_rows, desc="Encoding", unit="puzzle") as bar:
-            for boards, lengths, targets, plies, ratings, ids in pool.imap(_encode_chunk, row_batches()):
-                n = len(lengths)
-                sl = slice(offset, offset + n)
-                d_boards[sl] = boards
-                d_lengths[sl] = lengths
-                d_targets[sl] = targets
-                d_plies[sl] = plies
-                d_rating[sl] = ratings
-                d_ids[sl] = ids
+            for rows in row_batches():
+                pending.append(pool.apply_async(_encode_chunk, (rows,)))
+                if len(pending) >= max_in_flight:
+                    n = write(pending.popleft().get(), offset)
+                    offset += n
+                    bar.update(n)
+            while pending:
+                n = write(pending.popleft().get(), offset)
                 offset += n
                 bar.update(n)
         assert offset == num_rows, f"wrote {offset} rows, expected {num_rows}"
