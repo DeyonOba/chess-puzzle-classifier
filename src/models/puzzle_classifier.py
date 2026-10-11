@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 
 from src.models.backbones.resnet_board import ResNetBoardEncoder
+from src.models.heads import MLGCNHead, Query2LabelHead
 from src.utils.label_groups import LabelLayout
 
 
@@ -60,12 +61,13 @@ class PuzzleSequenceClassifier(nn.Module):
         dropout: float = 0.3,
         head: str = "flat",
         labels: list[str] | None = None,
+        head_kwargs: dict | None = None,
     ):
         super().__init__()
         if pooling not in ("mean", "attention"):
             raise ValueError(f"pooling must be 'mean' or 'attention', got {pooling!r}")
         self.encoder = ResNetBoardEncoder(in_planes, hidden_dim, num_res_blocks)
-        self.ply_embedding = nn.Embedding(max_positions, hidden_dim)
+        self.ply_embedding = nn.Embedding(max_positions, hidden_dim) if head != "q2l" else None  # q2l adds its own
         self.pooling = pooling
         if pooling == "attention":
             self.attn = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.Tanh(), nn.Linear(hidden_dim, 1))
@@ -81,8 +83,12 @@ class PuzzleSequenceClassifier(nn.Module):
             if labels is None or len(labels) != num_labels:
                 raise ValueError("head='grouped' needs the label list")
             self.head = GroupedHead(hidden_dim, LabelLayout(labels), dropout)
+        elif head == "q2l":
+            self.head = Query2LabelHead(num_labels, hidden_dim, max_positions, **(head_kwargs or {}))
+        elif head == "mlgcn":
+            self.head = MLGCNHead(num_labels, hidden_dim, **(head_kwargs or {}))
         else:
-            raise ValueError(f"head must be 'flat' or 'grouped', got {head!r}")
+            raise ValueError(f"head must be one of flat/grouped/q2l/mlgcn, got {head!r}")
 
     def probs(self, raw: torch.Tensor) -> torch.Tensor:
         """Per-label probabilities (B, L) from the raw head output."""
@@ -92,6 +98,12 @@ class PuzzleSequenceClassifier(nn.Module):
         B, T = boards.shape[:2]
         mask = torch.arange(T, device=boards.device)[None, :] < lengths[:, None]  # (B, T)
         flat_mask = mask.reshape(-1)
+
+        if self.head_type == "q2l":  # needs the spatial map of every valid position
+            valid_spatial = self.encoder.spatial(boards.flatten(0, 1)[flat_mask])  # (sum(lengths), D, 8, 8)
+            spatial = valid_spatial.new_zeros(B * T, *valid_spatial.shape[1:])
+            spatial[flat_mask] = valid_spatial
+            return self.head(spatial.view(B, T, *valid_spatial.shape[1:]), mask)
 
         valid_feats = self.encoder(boards.flatten(0, 1)[flat_mask])  # (sum(lengths), D)
         feats = valid_feats.new_zeros(B * T, valid_feats.shape[1])

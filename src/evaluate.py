@@ -22,13 +22,22 @@ from src.train import pick_device, predict
 from src.utils.thresholds import f1_at_thresholds, tune_thresholds
 
 
+def head_kwargs_from_config(cfg: dict) -> dict:
+    head = cfg.get("head", "flat")
+    if head == "q2l":
+        return {"num_layers": cfg["q2l_layers"], "num_heads": cfg["q2l_heads"]}
+    if head == "mlgcn":
+        return {"gcn_dim": cfg["mlgcn_dim"]}  # adjacency / embeddings come from the state dict
+    return {}
+
+
 def load_model(run_dir: pathlib.Path, device, checkpoint="best.pt"):
     state = torch.load(run_dir / checkpoint, map_location="cpu", weights_only=False)
     cfg = state["config"]
     model = PuzzleSequenceClassifier(
         num_labels=cfg["num_labels"], hidden_dim=cfg["hidden_dim"], num_res_blocks=cfg["res_blocks"],
         max_positions=cfg["T"], pooling=cfg["pooling"], dropout=cfg["dropout"],
-        head=cfg.get("head", "flat"), labels=cfg["labels"],
+        head=cfg.get("head", "flat"), labels=cfg["labels"], head_kwargs=head_kwargs_from_config(cfg),
     )
     model.load_state_dict(state["model"])
     return model.to(device).eval(), cfg, state

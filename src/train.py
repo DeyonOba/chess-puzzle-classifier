@@ -25,6 +25,7 @@ from tqdm import tqdm
 
 from src.data.datamodule import load_splits, make_loader
 from src.data.dataset import PuzzleSequenceDataset
+from src.models.heads import build_adjacency
 from src.models.puzzle_classifier import PuzzleSequenceClassifier
 from src.utils.losses import LOSS_NAMES, GroupedLoss, build_loss
 from src.utils.metrics import MultiLabelPuzzleMetrics
@@ -85,7 +86,12 @@ def main():
     p.add_argument("--runs-dir", default="runs")
     p.add_argument("--max-positions", type=int, default=None, help="1 = position-only; default = all in file")
     p.add_argument("--pooling", choices=["mean", "attention"], default="mean")
-    p.add_argument("--head", choices=["flat", "grouped"], default="flat")
+    p.add_argument("--head", choices=["flat", "grouped", "q2l", "mlgcn"], default="flat")
+    p.add_argument("--q2l-layers", type=int, default=1)
+    p.add_argument("--q2l-heads", type=int, default=4)
+    p.add_argument("--mlgcn-tau", type=float, default=0.4)
+    p.add_argument("--mlgcn-p", type=float, default=0.2)
+    p.add_argument("--mlgcn-dim", type=int, default=256)
     p.add_argument("--group-weight", type=float, default=1.0, help="grouped head: weight of the group CE terms")
     p.add_argument("--hidden-dim", type=int, default=256)
     p.add_argument("--res-blocks", type=int, default=6)
@@ -121,13 +127,19 @@ def main():
     train_loader = make_loader(dataset, splits["train"], args.batch_size, True, args.num_workers, args.seed, drop_last=True)
     val_loader = make_loader(dataset, splits["val"], args.batch_size, False, args.num_workers)
 
+    needs_targets = args.loss == "weighted_bce" or args.head in ("grouped", "mlgcn")
+    train_targets = dataset.read_targets()[splits["train"]] if needs_targets else None
+    head_kwargs = {}
+    if args.head == "q2l":
+        head_kwargs = {"num_layers": args.q2l_layers, "num_heads": args.q2l_heads}
+    elif args.head == "mlgcn":
+        adjacency, cond = build_adjacency(train_targets, args.mlgcn_tau, args.mlgcn_p)
+        head_kwargs = {"gcn_dim": args.mlgcn_dim, "adjacency": adjacency, "label_init": cond}
     model = PuzzleSequenceClassifier(
         num_labels=dataset.num_labels, hidden_dim=args.hidden_dim, num_res_blocks=args.res_blocks,
         max_positions=dataset.max_positions, pooling=args.pooling, dropout=args.dropout,
-        head=args.head, labels=dataset.labels,
+        head=args.head, labels=dataset.labels, head_kwargs=head_kwargs,
     ).to(device)
-    needs_targets = args.loss == "weighted_bce" or args.head == "grouped"
-    train_targets = dataset.read_targets()[splits["train"]] if needs_targets else None
     free_targets = train_targets[:, model.head.layout.free] if args.head == "grouped" and train_targets is not None else train_targets
     loss_fn = build_loss(
         args.loss, free_targets, args.pos_weight_cap, args.pos_weight_power, args.focal_gamma, args.focal_alpha,

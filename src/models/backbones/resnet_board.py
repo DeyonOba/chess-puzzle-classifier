@@ -37,5 +37,8 @@ class ResNetBoardEncoder(nn.Module):
         self.pool = nn.AdaptiveAvgPool2d((1, 1))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        feat = self.res_blocks(self.stem(x))
-        return self.pool(feat).flatten(1)
+        return self.pool(self.spatial(x)).flatten(1)
+
+    def spatial(self, x: torch.Tensor) -> torch.Tensor:
+        """(N, hidden_dim, 8, 8) feature map before pooling."""
+        return self.res_blocks(self.stem(x))
