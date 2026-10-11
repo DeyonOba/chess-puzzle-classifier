@@ -43,10 +43,11 @@ def test_compute_pos_weight_cap_and_power():
     Y[:500, 0] = 1  # 1:1 -> weight 1
     Y[:10, 1] = 1   # 99:1 -> capped at 20
     # label 2 never positive -> cap
-    w = compute_pos_weight(Y, cap=20.0)
+    w = compute_pos_weight(Y, cap=20.0, power=1.0)
     assert w.tolist() == [1.0, 20.0, 20.0]
-    w_sqrt = compute_pos_weight(Y, cap=20.0, power=0.5)
-    assert abs(w_sqrt[1].item() - 99 ** 0.5) < 1e-4
+    w_sqrt = compute_pos_weight(Y, cap=20.0, power=0.5)  # the default power
+    assert abs(w_sqrt[1].item() - 99 ** 0.5) < 1e-4 and w_sqrt[2].item() == 20.0
+    assert compute_pos_weight(Y, cap=20.0).tolist() == w_sqrt.tolist()
 
 
 def test_build_loss_names():

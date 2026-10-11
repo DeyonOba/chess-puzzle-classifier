@@ -32,7 +32,7 @@ def compute_pos_weight(targets: np.ndarray, cap: float = 20.0, power: float = 0.
     """
     pos = targets.sum(0).astype(np.float64)
     neg = len(targets) - pos
-    ratio = np.where(pos > 0, neg / np.maximum(pos, 1), cap) ** power
+    ratio = np.where(pos > 0, (neg / np.maximum(pos, 1)) ** power, cap)  # no positives -> cap, regardless of power
     return torch.tensor(np.clip(ratio, 1.0, cap), dtype=torch.float32)
 
 
