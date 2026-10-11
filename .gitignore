@@ -7,7 +7,7 @@ wheels/
 *.egg-info
 
 # Puzzle data files and precomputed puzzle database
-data/
+/data/
 
 # Virtual environments
 .venv
