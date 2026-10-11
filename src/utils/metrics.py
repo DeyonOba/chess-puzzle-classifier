@@ -1,43 +1,54 @@
 import torch
 import torch.nn as nn
 from torchmetrics.classification import (
-    MultilabelF1Score,
+    MultilabelAveragePrecision,
     MultilabelExactMatch,
+    MultilabelF1Score,
     MultilabelPrecision,
     MultilabelRecall,
-    MultilabelAUPRC
 )
 
+
 class MultiLabelPuzzleMetrics(nn.Module):
-    def __init__(self, num_classes: int, default_threshold: float = 0.5):
+    """Aggregates threshold-dependent and ranking metrics for multi-label puzzle themes.
+
+    `update` takes raw logits; thresholds are applied to sigmoid probabilities.
+    """
+
+    def __init__(self, num_labels: int, default_threshold: float = 0.5):
         super().__init__()
-        self.num_classes = num_classes
+        self.num_labels = num_labels
 
         # Overall balance across all (sample, class) pairs
-        self.micro_f1 = MultilabelF1Score(num_classes=num_classes, average="micro", threshold=default_threshold)
-        
+        self.micro_f1 = MultilabelF1Score(num_labels=num_labels, average="micro", threshold=default_threshold)
+
         # Unweighted average across classes (highlights rare theme failures)
-        self.macro_f1 = MultilabelF1Score(num_classes=num_classes, average="macro", threshold=default_threshold)
-        
+        self.macro_f1 = MultilabelF1Score(num_labels=num_labels, average="macro", threshold=default_threshold)
+
         # Macro Precision & Recall for diagnostics
-        self.macro_precision = MultilabelPrecision(num_classes=num_classes, average="macro", threshold=default_threshold)
-        self.macro_recall = MultilabelRecall(num_classes=num_classes, average="macro", threshold=default_threshold)
+        self.macro_precision = MultilabelPrecision(num_labels=num_labels, average="macro", threshold=default_threshold)
+        self.macro_recall = MultilabelRecall(num_labels=num_labels, average="macro", threshold=default_threshold)
 
-        # Strict set-equality accuracy (Obj == {A, B, E} exactly)
-        self.exact_match = MultilabelExactMatch(num_classes=num_classes, threshold=default_threshold)
+        # Strict set-equality accuracy (predicted set == target set)
+        self.exact_match = MultilabelExactMatch(num_labels=num_labels, threshold=default_threshold)
 
-        # Threshold-independent ranking quality (PR-AUC)
-        self.macro_auprc = MultilabelAUPRC(num_classes=num_classes, average="macro")
+        # Threshold-independent ranking quality (macro PR-AUC)
+        self.macro_auprc = MultilabelAveragePrecision(num_labels=num_labels, average="macro")
+
+        # Per-class F1 for diagnostics and per-class threshold tuning
+        self.per_class_f1 = MultilabelF1Score(num_labels=num_labels, average=None, threshold=default_threshold)
 
     @torch.no_grad()
     def update(self, logits: torch.Tensor, targets: torch.Tensor):
         probs = torch.sigmoid(logits)
+        targets = targets.to(torch.long)
         self.micro_f1.update(probs, targets)
         self.macro_f1.update(probs, targets)
         self.macro_precision.update(probs, targets)
         self.macro_recall.update(probs, targets)
         self.exact_match.update(probs, targets)
         self.macro_auprc.update(probs, targets)
+        self.per_class_f1.update(probs, targets)
 
     @torch.no_grad()
     def compute(self) -> dict:
@@ -50,10 +61,18 @@ class MultiLabelPuzzleMetrics(nn.Module):
             "macro_auprc": self.macro_auprc.compute().item(),
         }
 
+    @torch.no_grad()
+    def compute_per_class_f1(self) -> torch.Tensor:
+        return self.per_class_f1.compute()
+
     def reset(self):
-        self.micro_f1.reset()
-        self.macro_f1.reset()
-        self.macro_precision.reset()
-        self.macro_recall.reset()
-        self.exact_match.reset()
-        self.macro_auprc.reset()
+        for m in (
+            self.micro_f1,
+            self.macro_f1,
+            self.macro_precision,
+            self.macro_recall,
+            self.exact_match,
+            self.macro_auprc,
+            self.per_class_f1,
+        ):
+            m.reset()
