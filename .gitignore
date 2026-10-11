@@ -1,0 +1,13 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Puzzle data files and precomputed puzzle database
+data/
+
+# Virtual environments
+.venv
