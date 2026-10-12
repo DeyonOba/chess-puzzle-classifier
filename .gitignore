@@ -17,3 +17,5 @@ runs/
 
 # Hydra / Lightning outputs
 logs/
+
+# Kaggle dataset staging (hard links to data/*_v2 + dataset-metadata.json)

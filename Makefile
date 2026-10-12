@@ -5,6 +5,7 @@
 #   make test      pytest
 #   make train     python -m src.train $(ARGS)
 #   make serve     uvicorn with CKPT=... [POS_CKPT=...]
+#   make kaggle-dataset / kaggle-push / kaggle-status   (see kaggle/README.md)
 #   make clean-data / clean-logs
 
 UV        ?= uv
@@ -77,3 +78,18 @@ clean-data:
 	rm -f $(H5) $(META) $(SPLITS)
 clean-logs:
 	rm -rf logs
+
+# ---- kaggle -----------------------------------------------------------------------------------
+KAGGLE     ?= kaggle
+KAGGLE_USER ?= $(shell python3 -c "import json,os;print(json.load(open(os.path.expanduser('~/.kaggle/kaggle.json')))['username'])")
+STAGE       = $(DATA_DIR)/kaggle_dataset
+.PHONY: kaggle-dataset kaggle-push kaggle-status
+kaggle-dataset: $(SPLITS)           # stage v2 files (hard links) + metadata, then upload (~1.3 GB)
+	mkdir -p $(STAGE)
+	for f in $(notdir $(H5)) $(notdir $(META)) $(notdir $(SPLITS)); do ln -f $(DATA_DIR)/$$f $(STAGE)/$$f; done
+	printf '{"title": "Lichess puzzle themes v2 (packed bitboards)", "id": "%s/chess-puzzle-data-v2", "licenses": [{"name": "CC0-1.0"}]}\n' $(KAGGLE_USER) > $(STAGE)/dataset-metadata.json
+	$(KAGGLE) datasets create -p $(STAGE) --dir-mode zip || $(KAGGLE) datasets version -p $(STAGE) --dir-mode zip -m "update"
+kaggle-push:                        # push + run the training kernel (uses the GPU budget)
+	$(KAGGLE) kernels push -p kaggle
+kaggle-status:
+	$(KAGGLE) kernels status $(KAGGLE_USER)/chess-puzzle-classifier-train
