@@ -59,3 +59,20 @@ def f1_at_thresholds(probs: np.ndarray, targets: np.ndarray, thresholds: np.ndar
 def apply_thresholds(logits: torch.Tensor, thresholds: np.ndarray | torch.Tensor) -> torch.Tensor:
     thr = torch.as_tensor(thresholds, dtype=logits.dtype, device=logits.device)
     return torch.sigmoid(logits) >= thr
+
+
+def decode_grouped(probs: np.ndarray, thresholds: np.ndarray, layout) -> np.ndarray:
+    """Consistent decoding for grouped heads: argmax within each exclusive group (a member is
+    predicted only if its probability beats the group's 'none' mass), per-class thresholds on
+    the free labels. Guarantees at most one label per group."""
+    probs = np.asarray(probs)
+    preds = probs >= np.asarray(thresholds)[None, :]
+    for _, idx in layout.groups:
+        p = probs[:, idx]
+        none_mass = np.clip(1 - p.sum(1), 0, 1)
+        winner = p.argmax(1)
+        fire = p.max(1) > none_mass
+        block = np.zeros_like(p, dtype=bool)
+        block[np.arange(len(p)), winner] = fire
+        preds[:, idx] = block
+    return preds

@@ -28,7 +28,9 @@ from src.data.dataset import PuzzleSequenceDataset
 from src.evaluate import load_model
 from src.train import pick_device, predict
 from src.utils.label_groups import EXCLUSIVE_GROUPS
+from src.utils.label_groups import LabelLayout
 from src.utils.ranking import per_label_average_precision, ranking_report
+from src.utils.thresholds import decode_grouped, f1_at_thresholds
 
 
 def group_confusions(probs, targets, labels):
@@ -98,6 +100,14 @@ def to_markdown(result: dict) -> str:
         lines.append(f"- **{l}** ({s['false_negatives']:,} FN): {inst}")
     lines += ["", "## Co-occurrence drift (predicted joint rate vs true joint rate)", "", "| pair | true | predicted | diff |", "|---|---|---|---|"]
     lines += [f"| {a} + {b} | {d['true_rate']:.4f} | {d['pred_rate']:.4f} | {d['diff']:+.4f} |" for d in result["drift"] for a, b in [d["pair"]]]
+    c = result.get("consistent_decoding")
+    if c:
+        lines += ["", "## Grouped head: independent thresholds vs argmax-within-group decoding (test)", "",
+                  "| decoding | micro-F1 | macro-F1 | macro-P | macro-R | exact match |", "|---|---|---|---|---|---|"]
+        for name, m in (("independent per-class thresholds", c["independent_thresholds"]), ("argmax within groups + thresholds on free labels", c["argmax_groups"])):
+            lines.append(f"| {name} | {m['micro_f1']:.4f} | {m['macro_f1']:.4f} | {m['macro_precision']:.4f} | {m['macro_recall']:.4f} | {m['exact_match']:.4f} |")
+        lines += ["", "Drift under argmax decoding:", "", "| pair | true | predicted | diff |", "|---|---|---|---|"]
+        lines += [f"| {a} + {b} | {d['true_rate']:.4f} | {d['pred_rate']:.4f} | {d['diff']:+.4f} |" for d in c["drift_argmax_groups"] for a, b in [d["pair"]]]
     return "\n".join(lines) + "\n"
 
 
@@ -130,6 +140,21 @@ def main():
         probs, targets = predict(model, make_loader(dataset, splits["test"], args.batch_size, False, args.num_workers), device, args.test_batches)
         np.savez_compressed(cache, probs=probs, targets=targets)
     preds = probs >= thresholds[None]
+    consistent = None
+    if getattr(model, "grouped", False):
+        # grouped heads: compare independent per-class thresholds with argmax-within-group decoding
+        preds_c = decode_grouped(probs, thresholds, LabelLayout(labels))
+        m_ind = f1_at_thresholds(probs, targets, thresholds)
+        m_con = {k: v for k, v in f1_at_thresholds(probs, targets, thresholds).items() if k != "per_class_f1"}
+        tp = (preds_c & targets.astype(bool)).sum(0); fp = (preds_c & ~targets.astype(bool)).sum(0); fn = (~preds_c & targets.astype(bool)).sum(0)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            f1 = np.where(2 * tp + fp + fn > 0, 2 * tp / np.maximum(2 * tp + fp + fn, 1), 0.0)
+            prec = np.where(tp + fp > 0, tp / np.maximum(tp + fp, 1), 0.0); rec = np.where(tp + fn > 0, tp / np.maximum(tp + fn, 1), 0.0)
+        m_con = {"micro_f1": float(2 * tp.sum() / max(2 * tp.sum() + fp.sum() + fn.sum(), 1)), "macro_f1": float(f1.mean()),
+                 "macro_precision": float(prec.mean()), "macro_recall": float(rec.mean()),
+                 "exact_match": float((preds_c == targets.astype(bool)).all(1).mean())}
+        consistent = {"independent_thresholds": {k: v for k, v in m_ind.items() if k != "per_class_f1"}, "argmax_groups": m_con,
+                      "drift_argmax_groups": cooccurrence_drift(preds_c, targets, labels, top=8)}
 
     ap = per_label_average_precision(probs, targets)
     n_pos = targets.sum(0)
@@ -142,6 +167,7 @@ def main():
         "substitutions": substitutions(preds, targets, labels),
         "drift": cooccurrence_drift(preds, targets, labels),
         "per_label_ap": {l: (None if np.isnan(ap[j]) else float(ap[j])) for j, l in enumerate(labels)},
+        "consistent_decoding": consistent,
     }
     (run_dir / "analysis.json").write_text(json.dumps(result, indent=2))
     (run_dir / "analysis.md").write_text(to_markdown(result))

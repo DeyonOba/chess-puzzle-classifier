@@ -46,3 +46,19 @@ def test_exact_match_and_micro():
     p = np.array([[0.9, 0.1], [0.2, 0.8]], dtype=np.float32); t = np.array([[1, 0], [0, 1]])
     m = f1_at_thresholds(p, t, np.array([0.5, 0.5]))
     assert m["micro_f1"] == 1.0 and m["macro_f1"] == 1.0 and m["exact_match"] == 1.0
+
+
+def test_decode_grouped_is_exclusive():
+    from src.utils.label_groups import LabelLayout
+    from src.utils.thresholds import decode_grouped
+    labels = ["mate", "crushing", "advantage", "equality", "fork", "pin"]
+    lay = LabelLayout(labels)
+    probs = np.array([[0.45, 0.44, 0.10, 0.01, 0.9, 0.1],   # mate narrowly wins the group
+                      [0.10, 0.10, 0.10, 0.05, 0.2, 0.7]])  # none (0.65) beats every member
+    thr = np.array([0.3, 0.3, 0.3, 0.3, 0.5, 0.5])
+    naive = probs >= thr
+    assert naive[0, :4].sum() == 2  # independent thresholds fire mate AND crushing
+    preds = decode_grouped(probs, thr, lay)
+    assert preds[0, :4].tolist() == [True, False, False, False]
+    assert preds[1, :4].sum() == 0
+    assert preds[:, 4:].tolist() == naive[:, 4:].tolist()  # free labels untouched
