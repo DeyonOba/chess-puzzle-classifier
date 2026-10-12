@@ -28,7 +28,7 @@ import numpy as np
 import torch
 
 from src.models.puzzle_module import PuzzleLitModule
-from src.utils.bitboard_encoder import board_to_bitboards, unpack_bitboards
+from src.utils.bitboard_encoder import NUM_PLANES_EXTENDED, board_to_bitboards, unpack_bitboards
 from src.utils.label_groups import EXCLUSIVE_GROUPS, LabelLayout
 from src.utils.thresholds import decode_grouped
 
@@ -77,6 +77,7 @@ class Predictor:
         self.index = {l: i for i, l in enumerate(self.labels)}
         self.max_positions = self.model.net.ply_embedding.num_embeddings if self.model.net.ply_embedding is not None \
             else self.model.net.head.ply_embedding.num_embeddings
+        self.extended = self.model.net.in_planes == NUM_PLANES_EXTENDED  # checkpoint trained on attack-map planes
         self.thresholds = self.model.thresholds.detach().cpu().numpy().copy()
         if eval_results:
             ev = json.loads(pathlib.Path(eval_results).read_text())
@@ -86,14 +87,14 @@ class Predictor:
     def encode(self, fen: str, moves: list[str] | None) -> tuple[torch.Tensor, torch.Tensor, chess.Board]:
         board = chess.Board(fen)
         moves = moves or []
-        packed = [board_to_bitboards(board)]
+        packed = [board_to_bitboards(board, self.extended)]
         for u in moves[: self.max_positions - 1]:
             board.push_uci(u)
-            packed.append(board_to_bitboards(board))
+            packed.append(board_to_bitboards(board, self.extended))
         for u in moves[self.max_positions - 1:]:  # beyond T: still play out, for the mate rule
             board.push_uci(u)
         T = len(packed)
-        arr = np.zeros((self.max_positions, 18), dtype=np.uint64); arr[:T] = np.stack(packed)
+        arr = np.zeros((self.max_positions, packed[0].shape[0]), dtype=np.uint64); arr[:T] = np.stack(packed)
         boards = torch.from_numpy(unpack_bitboards(arr)).float()[None]  # (1, T_max, 18, 8, 8)
         return boards, torch.tensor([T]), board
 

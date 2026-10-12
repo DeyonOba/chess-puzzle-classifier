@@ -22,12 +22,50 @@ import numpy as np
 import torch
 
 NUM_PLANES = 18
+NUM_EXTRA_PLANES = 8
+NUM_PLANES_EXTENDED = NUM_PLANES + NUM_EXTRA_PLANES
+EXTRA_PLANE_NAMES = ["attacked_by_white", "attacked_by_black", "pinned_white", "pinned_black",
+                     "hanging_white", "hanging_black", "checkers", "in_check"]
 _FULL = np.uint64(chess.BB_ALL)
 _EMPTY = np.uint64(0)
+_VALUE = {chess.PAWN: 1, chess.KNIGHT: 3, chess.BISHOP: 3, chess.ROOK: 5, chess.QUEEN: 9, chess.KING: 100}
 
 
-def board_to_bitboards(board: chess.Board) -> np.ndarray:
-    """Encode a python-chess Board as a (NUM_PLANES,) uint64 array of bitboards."""
+def extra_bitboards(board: chess.Board) -> np.ndarray:
+    """8 attack-map planes (uint64 masks), exact python-chess facts about piece interactions:
+    18/19 squares attacked by white / black, 20/21 pinned white / black pieces, 22/23 hanging white / black
+    pieces (attacked and undefended, outnumbered, or attacked by a cheaper piece), 24 the checking pieces,
+    25 all ones when the side to move is in check."""
+    out = np.zeros(NUM_EXTRA_PLANES, dtype=np.uint64)
+    for i, color in enumerate((chess.WHITE, chess.BLACK)):
+        attacked = 0
+        pinned = 0
+        for sq in chess.scan_forward(board.occupied_co[color]):
+            attacked |= board.attacks_mask(sq)
+            if board.is_pinned(color, sq):
+                pinned |= chess.BB_SQUARES[sq]
+        out[i] = attacked
+        out[2 + i] = pinned
+    for sq, piece in board.piece_map().items():
+        if piece.piece_type == chess.KING:
+            continue
+        att = board.attackers_mask(not piece.color, sq)
+        if not att:
+            continue
+        dfn = board.attackers_mask(piece.color, sq)
+        cheapest = min(_VALUE[board.piece_type_at(a)] for a in chess.scan_forward(att))
+        if not dfn or cheapest < _VALUE[piece.piece_type] or chess.popcount(att) > chess.popcount(dfn):
+            out[4 + (0 if piece.color == chess.WHITE else 1)] |= np.uint64(chess.BB_SQUARES[sq])
+    out[6] = np.uint64(board.checkers_mask())
+    out[7] = _FULL if board.is_check() else _EMPTY
+    return out
+
+
+def board_to_bitboards(board: chess.Board, extended: bool = False) -> np.ndarray:
+    """Encode a python-chess Board as a (NUM_PLANES,) uint64 array of bitboards; (NUM_PLANES_EXTENDED,) with
+    `extended=True`, which appends the attack-map planes from extra_bitboards()."""
+    if extended:
+        return np.concatenate([board_to_bitboards(board), extra_bitboards(board)])
     out = np.empty(NUM_PLANES, dtype=np.uint64)
     white = board.occupied_co[chess.WHITE]
     black = board.occupied_co[chess.BLACK]
@@ -60,7 +98,7 @@ def board_to_tensor_fast(board: chess.Board) -> torch.Tensor:
     return torch.from_numpy(unpack_bitboards(board_to_bitboards(board)))
 
 
-def encode_solution_line(fen: str, moves: str, max_positions: int) -> tuple[np.ndarray, int]:
+def encode_solution_line(fen: str, moves: str, max_positions: int, extended: bool = False) -> tuple[np.ndarray, int]:
     """Encode a Lichess puzzle as a sequence of packed positions.
 
     The CSV FEN is the position *before* the opponent's setup move, which is the
@@ -76,9 +114,9 @@ def encode_solution_line(fen: str, moves: str, max_positions: int) -> tuple[np.n
     board.push_uci(uci_moves[0])
 
     length = min(len(uci_moves), max_positions)
-    packed = np.zeros((max_positions, NUM_PLANES), dtype=np.uint64)
-    packed[0] = board_to_bitboards(board)
+    packed = np.zeros((max_positions, NUM_PLANES_EXTENDED if extended else NUM_PLANES), dtype=np.uint64)
+    packed[0] = board_to_bitboards(board, extended)
     for k in range(1, length):
         board.push_uci(uci_moves[k])
-        packed[k] = board_to_bitboards(board)
+        packed[k] = board_to_bitboards(board, extended)
     return packed, length

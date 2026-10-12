@@ -5,6 +5,7 @@
 #   make test      pytest
 #   make train     python -m src.train $(ARGS)
 #   make serve     uvicorn with CKPT=... [POS_CKPT=...]
+#   make encode-extended   HDF5 with attack-map planes (data/puzzle_boards_v2x.h5)
 #   make kaggle-dataset / kaggle-push / kaggle-status   (see kaggle/README.md)
 #   make clean-data / clean-logs
 
@@ -93,3 +94,11 @@ kaggle-push:                        # push + run the training kernel (uses the G
 	$(KAGGLE) kernels push -p kaggle
 kaggle-status:
 	$(KAGGLE) kernels status $(KAGGLE_USER)/chess-puzzle-classifier-full-data-training
+
+# ---- attack-map planes (experiment=attack_planes_laptop) ---------------------------------------
+H5X   = $(DATA_DIR)/puzzle_boards_v2x.h5
+METAX = $(DATA_DIR)/puzzle_metadata_v2x.json
+.PHONY: encode-extended
+encode-extended: $(H5X)
+$(H5X) $(METAX): $(CSV)
+	$(PY) -m src.data.preencode --csv $(CSV) --out $(H5X) --meta $(METAX) --max-positions $(T_MAX) --merge $(MERGE) --planes extended

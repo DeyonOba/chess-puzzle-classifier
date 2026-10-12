@@ -1,0 +1,17 @@
+# @package _global_
+# Attack-map input planes experiment: the bounded laptop protocol on a `--planes extended` file
+# (18 base + 8 python-chess planes: attacked squares per side, pinned pieces, hanging pieces, checkers, in-check).
+# Baseline to compare against: experiment=bounded_laptop on the base v2 file (tuned macro-F1 0.586 / micro 0.859).
+#   python -m src.data.preencode --csv data/lichess_db_puzzle.csv --out data/puzzle_boards_v2x.h5 \
+#       --meta data/puzzle_metadata_v2x.json --merge winning=crushing,advantage --planes extended
+#   python -m src.train experiment=attack_planes_laptop run_name=v2x_q2lg_gw05_s0
+defaults:
+  - bounded_laptop
+tags: ["bounded", "laptop", "attack_planes"]
+data:
+  h5_path: ${paths.data_dir}/puzzle_boards_v2x.h5
+  splits_path: ${paths.data_dir}/splits_v2.npz     # same rows and order as the base v2 file
+model:
+  labels_path: ${paths.data_dir}/puzzle_metadata_v2x.json
+  net:
+    in_planes: 26

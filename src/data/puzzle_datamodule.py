@@ -48,6 +48,11 @@ class PuzzleDataModule(L.LightningDataModule):
         return len(self.labels)
 
     @property
+    def num_planes(self) -> int:
+        self.setup()
+        return self.dataset.num_planes
+
+    @property
     def max_positions(self) -> int:
         self.setup()
         return self.dataset.max_positions

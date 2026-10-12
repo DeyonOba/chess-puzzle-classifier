@@ -23,7 +23,7 @@ from src.utils.bitboard_encoder import unpack_bitboards
 class PuzzleSequenceDataset(Dataset):
     """Yields (boards, lengths, targets) batches from a packed-bitboard HDF5 file.
 
-    boards:  float32 (B, T, 18, 8, 8), zero-padded beyond each sample's length
+    boards:  float32 (B, T, P, 8, 8), P = 18 base planes or 26 with attack maps; zero-padded beyond each length
     lengths: int64   (B,)  valid positions per sample (clamped to T)
     targets: float32 (B, L) multi-hot themes
 
@@ -36,6 +36,7 @@ class PuzzleSequenceDataset(Dataset):
         with h5py.File(self.hdf5_path, "r") as f:
             self.num_samples = f["targets"].shape[0]
             self.num_labels = f["targets"].shape[1]
+            self.num_planes = int(f["boards"].shape[2])
             self.file_max_positions = int(f.attrs["max_positions"])
             self.labels = json.loads(f.attrs["labels"])
         self.max_positions = self.file_max_positions if max_positions is None else int(max_positions)

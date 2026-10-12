@@ -29,7 +29,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from src.utils.bitboard_encoder import NUM_PLANES, encode_solution_line
+from src.utils.bitboard_encoder import NUM_PLANES, NUM_PLANES_EXTENDED, encode_solution_line
 
 # Themes derived from the source game's player ratings, not from the board.
 # They are unlearnable from the position/solution and are excluded by default.
@@ -73,10 +73,11 @@ def build_vocabulary(csv_path: str, excluded: tuple[str, ...], limit: int | None
 _worker_state: dict = {}
 
 
-def _init_worker(label_index: dict[str, int], max_positions: int, merges: dict[str, str] | None = None):
+def _init_worker(label_index: dict[str, int], max_positions: int, merges: dict[str, str] | None = None, extended: bool = False):
     _worker_state["label_index"] = label_index
     _worker_state["max_positions"] = max_positions
     _worker_state["merges"] = merges or {}
+    _worker_state["extended"] = extended
 
 
 def _encode_chunk(rows: list[tuple[str, str, str, int, str]]):
@@ -84,15 +85,17 @@ def _encode_chunk(rows: list[tuple[str, str, str, int, str]]):
     label_index = _worker_state["label_index"]
     T = _worker_state["max_positions"]
     merges = _worker_state["merges"]
+    extended = _worker_state["extended"]
+    P = NUM_PLANES_EXTENDED if extended else NUM_PLANES
     n = len(rows)
-    boards = np.zeros((n, T, NUM_PLANES), dtype=np.uint64)
+    boards = np.zeros((n, T, P), dtype=np.uint64)
     lengths = np.zeros(n, dtype=np.uint8)
     targets = np.zeros((n, len(label_index)), dtype=np.uint8)
     plies = np.zeros(n, dtype=np.uint8)
     ratings = np.zeros(n, dtype=np.int16)
     ids = np.zeros(n, dtype="S8")
     for i, (pid, fen, moves, rating, themes) in enumerate(rows):
-        packed, length = encode_solution_line(fen, moves, T)
+        packed, length = encode_solution_line(fen, moves, T, extended)
         boards[i] = packed
         lengths[i] = length
         plies[i] = min(len(moves.split()) - 1, 255)
@@ -114,8 +117,10 @@ def build_hdf5_dataset(
     limit: int | None = None,
     workers: int | None = None,
     merges: dict[str, str] | None = None,
+    extended: bool = False,
 ) -> dict:
     merges = merges or {}
+    P = NUM_PLANES_EXTENDED if extended else NUM_PLANES
     labels, counts, num_rows = build_vocabulary(csv_path, excluded_themes, limit, merges)
     label_index = {t: i for i, t in enumerate(labels)}
     L = len(labels)
@@ -126,16 +131,18 @@ def build_hdf5_dataset(
         "excluded_themes": {t: counts.get(t, 0) for t in excluded_themes},
         "merges": merges,
         "merged_source_counts": {t: counts.get(t, 0) for t in merges},
+        "num_planes": P,
+        "planes": "extended" if extended else "base",
         "max_positions": max_positions,
         "num_samples": num_rows,
         "num_labels": L,
         "source_csv": str(pathlib.Path(csv_path).resolve()),
     }
 
-    with h5py.File(hdf5_out_path, "w") as h5f, Pool(workers, _init_worker, (label_index, max_positions, merges)) as pool:
+    with h5py.File(hdf5_out_path, "w") as h5f, Pool(workers, _init_worker, (label_index, max_positions, merges, extended)) as pool:
         d_boards = h5f.create_dataset(
-            "boards", shape=(num_rows, max_positions, NUM_PLANES), dtype=np.uint64,
-            chunks=(min(4096, num_rows), max_positions, NUM_PLANES), compression="lzf",
+            "boards", shape=(num_rows, max_positions, P), dtype=np.uint64,
+            chunks=(min(4096, num_rows), max_positions, P), compression="lzf",
         )
         d_lengths = h5f.create_dataset("lengths", shape=(num_rows,), dtype=np.uint8)
         d_targets = h5f.create_dataset("targets", shape=(num_rows, L), dtype=np.uint8, chunks=(min(65536, num_rows), L))
@@ -144,6 +151,7 @@ def build_hdf5_dataset(
         d_ids = h5f.create_dataset("puzzle_id", shape=(num_rows,), dtype="S8")
         h5f.attrs["labels"] = json.dumps(labels)
         h5f.attrs["max_positions"] = max_positions
+        h5f.attrs["num_planes"] = P
 
         def row_batches():
             reader = pd.read_csv(csv_path, usecols=CSV_COLUMNS, chunksize=CHUNK_ROWS, nrows=limit, dtype={"Themes": str})
@@ -197,13 +205,15 @@ def main():
     p.add_argument("--workers", type=int, default=None, help="process pool size (default: all cores)")
     p.add_argument("--keep-rating-themes", action="store_true",
                    help="keep master/masterVsMaster/superGM in the vocabulary")
+    p.add_argument("--planes", choices=["base", "extended"], default="base",
+                   help="extended = 18 base planes + 8 attack-map planes (attacked squares, pins, hanging pieces, checks)")
     p.add_argument("--merge", action="append", default=None, metavar="NEW=A,B",
                    help="merge raw themes into one label, e.g. --merge winning=crushing,advantage (repeatable)")
     args = p.parse_args()
     excluded = () if args.keep_rating_themes else DEFAULT_EXCLUDED_THEMES
     meta = build_hdf5_dataset(args.csv, args.out, args.meta, args.max_positions, excluded, args.limit, args.workers,
-                              parse_merges(args.merge))
-    print(f"wrote {meta['num_samples']:,} puzzles, {meta['num_labels']} labels, T={meta['max_positions']} -> {args.out}")
+                              parse_merges(args.merge), args.planes == "extended")
+    print(f"wrote {meta['num_samples']:,} puzzles, {meta['num_labels']} labels, T={meta['max_positions']}, planes={meta['num_planes']} -> {args.out}")
 
 
 if __name__ == "__main__":

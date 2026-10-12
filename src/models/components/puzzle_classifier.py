@@ -60,6 +60,7 @@ class PuzzleSequenceClassifier(nn.Module):
         self.pooling = pooling
         if pooling == "attention":
             self.attn = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.Tanh(), nn.Linear(hidden_dim, 1))
+        self.in_planes = in_planes
         self.head_type = head
         # control for the pooling hypothesis: keep square identity (flatten the 8x8 map, project
         # to hidden_dim per position) but use the ordinary pooled-vector MLP head

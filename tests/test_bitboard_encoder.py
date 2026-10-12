@@ -94,3 +94,25 @@ def test_encode_solution_line_truncates():
     packed, length = encode_solution_line(fen, moves, max_positions=3)
     assert packed.shape == (3, NUM_PLANES) and length == 3
     assert packed.any(axis=1).all()
+
+
+def test_extra_planes_attack_pin_hanging_check():
+    from src.utils.bitboard_encoder import NUM_PLANES_EXTENDED, extra_bitboards
+    # white Re1 pins black Ne4 against Ke8? use a clean one: white Bb5 pins black Nc6 to Ke8
+    board = chess.Board("4k3/8/2n5/1B6/8/8/8/4K3 b - - 0 1")
+    x = unpack_bitboards(board_to_bitboards(board, extended=True))
+    assert x.shape == (NUM_PLANES_EXTENDED, 8, 8)
+    np.testing.assert_array_equal(x[:18], unpack_bitboards(board_to_bitboards(board)))  # base planes unchanged
+    assert x[18, 5, 2] == 1          # c6 attacked by white (the bishop)
+    assert x[21, 5, 2] == 1 and x[21].sum() == 1   # black knight on c6 is pinned
+    assert x[23, 5, 2] == 1          # ...and hanging (attacked, undefended)
+    assert x[22].sum() == 0          # white bishop is not attacked
+    assert x[24].sum() == 0 and x[25].sum() == 0   # no check
+    board = chess.Board("4k3/8/8/8/8/8/8/4K2R b K - 0 1"); board.push_uci("e8d8"); board.push_uci("h1h8")
+    x = unpack_bitboards(board_to_bitboards(board, extended=True))
+    assert x[24, 7, 7] == 1 and x[25].all()        # rook on h8 gives check; in_check plane is all ones
+
+
+def test_encode_solution_line_extended_shape():
+    packed, length = encode_solution_line("r6k/pp2r2p/4Rp1Q/3p4/8/1N1P2R1/PqP2bPP/7K b - - 0 24", "f2g3 e6e7 b2b1", 12, extended=True)
+    assert packed.shape == (12, 26) and length == 3 and packed[:3, 18:].any()

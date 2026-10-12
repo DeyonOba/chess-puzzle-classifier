@@ -120,6 +120,9 @@ class PuzzleLitModule(L.LightningModule):
         if stage != "fit":
             return
         dm = self.trainer.datamodule
+        if dm.num_planes != self.net.in_planes:
+            raise ValueError(f"the HDF5 has {dm.num_planes} planes but model.net.in_planes={self.net.in_planes}; "
+                             f"use model.net.in_planes={dm.num_planes} (26 for a --planes extended file)")
         needs = self.hparams.loss == "weighted_bce" or self.layout is not None or self.net.head_type == "mlgcn"
         if not needs:
             return
