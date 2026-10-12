@@ -106,8 +106,36 @@ Details: `experiments/2026-10-11_loss_comparison.md`,
 `experiments/2026-10-12_head_comparison.md`,
 `experiments/2026-10-12_cooccurrence_analysis.md`.
 
-v2-vocabulary runs (line and position-only) and full-scale two-seed runs on a
-CUDA host (`experiment=full_gpu`) are the next results to add here.
+### v2 vocabulary (69 labels, crushing + advantage merged), bounded protocol, test split
+
+Same protocol, same default model (`q2l_grouped`, group weight 0.5), after the
+refactor. The position-only model is trained and evaluated on the first
+position only (`data.max_positions=1`), for requests without a solution line.
+
+| model | decoding | micro-F1 | macro-F1 | macro-P | macro-R | exact match | dead labels |
+|---|---|---|---|---|---|---|---|
+| line (T=12) | independent thresholds | 0.859 | **0.586** | 0.572 | 0.622 | 0.342 | 2 |
+| line (T=12) | argmax within groups | 0.854 | 0.563 | 0.513 | 0.665 | 0.322 | 3 |
+| line (T=12) | fixed 0.5 | **0.862** | 0.553 | 0.515 | 0.644 | **0.352** | 7 |
+| position-only (T=1) | independent thresholds | 0.599 | 0.350 | 0.315 | 0.430 | 0.013 | 12 |
+| position-only (T=1) | argmax within groups | 0.592 | 0.331 | 0.298 | 0.423 | 0.056 | 14 |
+| position-only (T=1) | fixed 0.5 | 0.607 | 0.295 | 0.329 | 0.340 | 0.047 | 24 |
+
+Tuned per-subset F1, line / position-only: outcome 0.65 / 0.51 (winning 0.97 /
+0.84, mate 0.95 / 0.68, equality dead in both), length 1.00 / 0.46, mateIn
+0.85 / 0.24, matePattern 0.55 / 0.24, endgameType 0.96 / 0.95, phase 0.93 /
+0.93, free tactical labels 0.37 / 0.20.
+
+What the merge changed against v1: micro-F1 0.815 -> 0.859 and exact match
+0.252 -> 0.342, because the crushing / advantage swap was the largest error
+source; macro-F1 0.580 -> 0.586. What the line is worth: the position-only
+model keeps the tags that are properties of the position (phase, endgame type,
+winning) and loses the ones that are properties of the solution (length, mate
+depth, mate patterns, most tactics), which is the expected split and the reason
+the API reports which model answered.
+
+Full-scale runs (`experiment=kaggle` / `experiment=full_gpu`) are the next
+results to add here.
 
 ## Pipeline
 
