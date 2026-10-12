@@ -86,7 +86,8 @@ def main():
     p.add_argument("--runs-dir", default="runs")
     p.add_argument("--max-positions", type=int, default=None, help="1 = position-only; default = all in file")
     p.add_argument("--pooling", choices=["mean", "attention"], default="mean")
-    p.add_argument("--head", choices=["flat", "grouped", "q2l", "mlgcn"], default="flat")
+    p.add_argument("--head", choices=["flat", "flat_spatial", "grouped", "q2l", "mlgcn"], default="q2l",
+                   help="q2l (default) attends over per-square features; flat_spatial is the pooling control")
     p.add_argument("--q2l-layers", type=int, default=1)
     p.add_argument("--q2l-heads", type=int, default=4)
     p.add_argument("--mlgcn-tau", type=float, default=0.4)

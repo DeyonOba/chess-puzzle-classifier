@@ -51,3 +51,16 @@ def test_heads_backprop():
         out = m(torch.rand(2, 3, 18, 8, 8).round(), torch.tensor([1, 3]))
         out.sum().backward()
         assert all(p.grad is not None and torch.isfinite(p.grad).all() for p in m.parameters() if p.requires_grad)
+
+
+def test_flat_spatial_control_shape_and_padding_invariance():
+    torch.manual_seed(0)
+    m = PuzzleSequenceClassifier(7, hidden_dim=16, num_res_blocks=1, max_positions=5, head="flat_spatial").eval()
+    assert m.spatial_proj.in_features == 16 * 64
+    boards = torch.rand(3, 5, 18, 8, 8).round(); lengths = torch.tensor([1, 2, 5])
+    out = m(boards, lengths)
+    assert out.shape == (3, 7)
+    noisy = boards.clone()
+    for b, n in enumerate(lengths.tolist()):
+        noisy[b, n:] = torch.rand(5 - n, 18, 8, 8).round()
+    torch.testing.assert_close(m(noisy, lengths), out)

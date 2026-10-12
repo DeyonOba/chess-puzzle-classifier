@@ -72,7 +72,10 @@ class PuzzleSequenceClassifier(nn.Module):
         if pooling == "attention":
             self.attn = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.Tanh(), nn.Linear(hidden_dim, 1))
         self.head_type = head
-        if head == "flat":
+        # control for the pooling hypothesis: keep square identity (flatten the 8x8 map, project
+        # to hidden_dim per position) but use the ordinary pooled-vector MLP head
+        self.spatial_proj = nn.Linear(hidden_dim * 64, hidden_dim) if head == "flat_spatial" else None
+        if head in ("flat", "flat_spatial"):
             self.head = nn.Sequential(
                 nn.Linear(hidden_dim, hidden_dim),
                 nn.ReLU(inplace=True),
@@ -88,7 +91,7 @@ class PuzzleSequenceClassifier(nn.Module):
         elif head == "mlgcn":
             self.head = MLGCNHead(num_labels, hidden_dim, **(head_kwargs or {}))
         else:
-            raise ValueError(f"head must be one of flat/grouped/q2l/mlgcn, got {head!r}")
+            raise ValueError(f"head must be one of flat/flat_spatial/grouped/q2l/mlgcn, got {head!r}")
 
     def probs(self, raw: torch.Tensor) -> torch.Tensor:
         """Per-label probabilities (B, L) from the raw head output."""
@@ -105,7 +108,10 @@ class PuzzleSequenceClassifier(nn.Module):
             spatial[flat_mask] = valid_spatial
             return self.head(spatial.view(B, T, *valid_spatial.shape[1:]), mask)
 
-        valid_feats = self.encoder(boards.flatten(0, 1)[flat_mask])  # (sum(lengths), D)
+        if self.head_type == "flat_spatial":
+            valid_feats = self.spatial_proj(self.encoder.spatial(boards.flatten(0, 1)[flat_mask]).flatten(1))
+        else:
+            valid_feats = self.encoder(boards.flatten(0, 1)[flat_mask])  # (sum(lengths), D)
         feats = valid_feats.new_zeros(B * T, valid_feats.shape[1])
         feats[flat_mask] = valid_feats
         feats = feats.view(B, T, -1) + self.ply_embedding.weight[:T][None]

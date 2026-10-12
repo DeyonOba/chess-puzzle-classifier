@@ -29,8 +29,13 @@ Add `--limit 100000` to preencode for a dev subset (see `data/dev/`).
   because they derive from player ratings, not the board.
 - **Split**: iterative multi-label stratification, 90/5/5, stored in
   `data/splits.npz` separately from the encoded boards.
-- **Model**: one ResNet encodes every position with shared weights, a learned
-  ply embedding is added, masked mean (or attention) pooling, MLP sigmoid head.
+- **Model**: one ResNet encodes every position with shared weights. Default
+  head is Query2Label (`--head q2l`): 70 label queries cross-attend over the
+  per-square features of every valid position (chosen in
+  `experiments/2026-10-12_head_comparison.md`, +0.17 macro-F1 over the pooled
+  MLP head). `--head flat` is the pooled-vector baseline; `grouped` adds a
+  softmax per mutually exclusive tag group; `mlgcn` is ML-GCN. On an 8 GB
+  machine run q2l with `--batch-size 128`.
 - **Loss**: BCE-with-logits with per-label `pos_weight = clip(sqrt(neg/pos), 1, 20)`
   (`--loss weighted_bce --pos-weight-power 0.5`), chosen over plain BCE, focal
   and ASL in `experiments/2026-10-11_loss_comparison.md`. Per-class decision
