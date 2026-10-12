@@ -112,16 +112,30 @@ CUDA host (`experiment=full_gpu`) are the next results to add here.
 ## Pipeline
 
 ```bash
-uv sync                                                        # python-chess, torch, lightning, hydra, fastapi, ...
+make setup                      # uv sync
+make data                       # download (300 MB) -> decompress (1.1 GB) -> encode HDF5 (~5 min, 1.3 GB) -> splits
+make dev                        # 100k-row subset in data/dev/ for smoke runs and tests
+make test                       # pytest
+make train ARGS="run_name=q2lg_s0"
+make eval  CKPT=logs/train/runs/q2lg_s0/checkpoints/best.ckpt
+make serve CKPT=logs/train/runs/q2lg_s0/checkpoints/best.ckpt POS_CKPT=logs/train/runs/pos/checkpoints/best.ckpt
+```
+
+`make data` is file-driven: each step runs only if its output is missing, so
+re-running after a partial download or a changed `--merge` (`make clean-data`)
+does the minimum. Variables: `DATA_DIR`, `MERGE` (default
+`winning=crushing,advantage`), `T_MAX` (12), `DEV_N` (100000). The underlying
+commands:
+
+```bash
 scripts/fetch_puzzles.sh && scripts/decompress_zstd.sh         # data/lichess_db_puzzle.csv
 uv run python -m src.data.preencode --csv data/lichess_db_puzzle.csv \
     --out data/puzzle_boards_v2.h5 --meta data/puzzle_metadata_v2.json \
-    --merge winning=crushing,advantage                         # ~5 min, ~1.3 GB
+    --merge winning=crushing,advantage
 uv run python -m src.data.components.splits --h5 data/puzzle_boards_v2.h5 --out data/splits_v2.npz
 uv run python -m src.train run_name=q2lg_s0                    # defaults: q2l_grouped, gw 0.5, weighted BCE
 uv run python -m src.eval ckpt_path=logs/train/runs/q2lg_s0/checkpoints/best.ckpt
 uv run python -m src.analyze logs/train/runs/q2lg_s0 --eval-results logs/eval/runs/<ts>/eval_results.json
-uv run pytest
 ```
 
 Training and evaluation are Hydra apps (layout after
@@ -199,6 +213,7 @@ chess-puzzle-classifier/
 │   ├── inference.py              # Predictor: encode, predict, decode, rules
 │   └── app.py                    # FastAPI service
 ├── tests/                        # pytest: encoder, dataset, splits, heads, losses, thresholds, ranking, lightning, inference
+├── Makefile                      # setup / data / dev / test / train / eval / serve
 ├── .project-root                 # rootutils marker (sets PROJECT_ROOT for configs/paths)
 ├── pyproject.toml / uv.lock
 └── README.md
