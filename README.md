@@ -36,6 +36,27 @@ Config groups: `data/{puzzle,dev}`, `model/net/{q2l_grouped,q2l,flat,flat_spatia
 Add `--limit 100000` to preencode for the dev subset in `data/dev/`. Full-scale
 two-seed runs on a CUDA host: `experiment=full_gpu seed=0|1`.
 
+## Serving
+
+```bash
+CPC_CKPT=logs/train/runs/NAME/checkpoints/best.ckpt uv run uvicorn src.app:app --port 8000
+curl -s localhost:8000/predict -H 'content-type: application/json' -d '{
+  "fen": "r6k/pp2r2p/4Rp1Q/3p4/8/1N1P2R1/PqP2bPP/7K b - - 0 24", "setup_move": "f2g3",
+  "moves": ["e6e7", "b2b1", "b3c1", "b1c1", "h6c1"], "cp": 850}'
+```
+
+`fen` is required and is the position the solver sees; pass `setup_move` if
+you are sending a Lichess CSV row. `moves` (the solution line) and `cp` (engine
+score after the line) are optional. Decoding is argmax within each exclusive
+tag group by default (`"decoding": "independent"` for per-class thresholds).
+With `apply_rules` (default on) tags that are pure functions of the inputs are
+set by cook.py's rule instead of predicted: length tags from the ply count,
+mate / mateInN when the line ends in checkmate, and the outcome from `cp`.
+`CPC_POSITION_CKPT` can point at a position-only checkpoint
+(`data.max_positions=1`) to serve FEN-only requests; otherwise the line model
+is used with a single position. `src/inference.py` has the same logic as a
+`Predictor` class.
+
 ## Design decisions (2026-10-11)
 
 - **Input**: the start position plus the board after every solution ply,

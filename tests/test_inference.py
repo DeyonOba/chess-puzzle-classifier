@@ -1,0 +1,77 @@
+import pathlib
+
+import pytest
+import torch
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+DEV_H5 = ROOT / "data/dev/puzzle_boards_100k.h5"
+FEN_CSV = "r6k/pp2r2p/4Rp1Q/3p4/8/1N1P2R1/PqP2bPP/7K b - - 0 24"
+SETUP, LINE = "f2g3", ["e6e7", "b2b1", "b3c1", "b1c1", "h6c1"]
+MATE_FEN = "6k1/5ppp/8/8/8/8/8/R5K1 w - - 0 1"   # Ra8# in one
+
+
+@pytest.fixture(scope="module")
+def ckpt(tmp_path_factory):
+    if not DEV_H5.exists():
+        pytest.skip("dev HDF5 not built")
+    import lightning as L
+    from hydra import compose, initialize_config_dir
+    from hydra.utils import instantiate
+    import os
+    os.environ.setdefault("PROJECT_ROOT", str(ROOT))
+    out = tmp_path_factory.mktemp("run")
+    with initialize_config_dir(version_base="1.3", config_dir=str(ROOT / "configs")):
+        cfg = compose(config_name="train.yaml", overrides=["debug=default", f"paths.output_dir={out}", "~callbacks", "~logger"])
+    dm, model = instantiate(cfg.data), instantiate(cfg.model)
+    trainer = L.Trainer(accelerator="cpu", max_epochs=1, limit_train_batches=2, limit_val_batches=2, logger=False,
+                        enable_checkpointing=False, enable_progress_bar=False, num_sanity_val_steps=0, use_distributed_sampler=False)
+    trainer.fit(model, datamodule=dm)
+    path = out / "best.ckpt"; trainer.save_checkpoint(path)
+    return path
+
+
+def test_predictor_line_and_rules(ckpt):
+    from src.inference import Predictor
+    p = Predictor(ckpt, device="cpu")
+    out = p.predict(FEN_CSV, LINE, setup_move=SETUP)
+    assert out.line_provided and out.positions == 6 and out.model == "line"
+    assert "long" in out.tags and "long" in out.rule_tags            # 5 plies -> long (cook.py counts the setup move)
+    assert not any(t.startswith("mateIn") for t in out.tags)          # line does not end in mate
+    assert len(out.probabilities) == len(p.labels) and all(0 <= v <= 1 for v in out.probabilities.values())
+    # argmax decoding: at most one tag per exclusive group
+    from src.utils.label_groups import EXCLUSIVE_GROUPS
+    for members in EXCLUSIVE_GROUPS.values():
+        assert sum(t in out.tags for t in members) <= 1
+
+
+def test_predictor_cp_rule_and_mate_rule(ckpt):
+    from src.inference import Predictor
+    p = Predictor(ckpt, device="cpu")
+    out = p.predict(FEN_CSV, LINE, cp=850, setup_move=SETUP)
+    assert "crushing" in out.tags and "advantage" not in out.tags and out.rule_tags["crushing"].startswith("rule: cp")
+    out = p.predict(FEN_CSV, LINE, cp=300, setup_move=SETUP)
+    assert "advantage" in out.tags and "crushing" not in out.tags
+    out = p.predict(MATE_FEN, ["a1a8"])
+    assert {"mate", "mateIn1", "oneMove"} <= set(out.tags) and out.rule_tags["mateIn1"] == "rule: line ends in checkmate"
+
+
+def test_predictor_fen_only_and_no_rules(ckpt):
+    from src.inference import Predictor
+    p = Predictor(ckpt, device="cpu")
+    out = p.predict(MATE_FEN)
+    assert not out.line_provided and out.positions == 1 and not out.rule_tags
+    out2 = p.predict(MATE_FEN, ["a1a8"], apply_rules=False, decoding="independent")
+    assert out2.decoding == "independent" and not out2.rule_tags
+
+
+def test_fastapi_app(ckpt, monkeypatch):
+    from fastapi.testclient import TestClient
+    import src.app as appmod
+    monkeypatch.setenv("CPC_CKPT", str(ckpt)); monkeypatch.setenv("CPC_DEVICE", "cpu")
+    with TestClient(appmod.app) as client:
+        assert client.get("/health").json()["status"] == "ok"
+        assert len(client.get("/labels").json()["labels"]) == 70
+        r = client.post("/predict", json={"fen": FEN_CSV, "setup_move": SETUP, "moves": LINE, "cp": 850})
+        assert r.status_code == 200 and "crushing" in r.json()["tags"] and r.json()["positions"] == 6
+        assert client.post("/predict", json={"fen": "not a fen"}).status_code == 422
+        assert client.post("/predict", json={"fen": MATE_FEN, "moves": ["a1a7", "zz"]}).status_code == 422
