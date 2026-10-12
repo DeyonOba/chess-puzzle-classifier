@@ -10,7 +10,7 @@ from __future__ import annotations
 import torch
 
 EXCLUSIVE_GROUPS: dict[str, list[str]] = {
-    "outcome": ["mate", "crushing", "advantage", "equality"],
+    "outcome": ["mate", "crushing", "advantage", "winning", "equality"],  # winning = crushing+advantage merged (preencode --merge)
     "length": ["oneMove", "short", "long", "veryLong"],
     "phase": ["opening", "middlegame", "endgame"],
     "mateIn": ["mateIn1", "mateIn2", "mateIn3", "mateIn4", "mateIn5"],

@@ -119,10 +119,11 @@ class Predictor:
             raise ValueError("decoding must be 'argmax_groups' or 'independent'")
 
         rule_tags: dict[str, str] = {}
+        self.extra_tags: list[str] = []
         if apply_rules:
             preds, rule_tags = self._apply_rules(preds, moves, final_board, cp)
 
-        tags = [l for l, on in zip(self.labels, preds) if on]
+        tags = [l for l, on in zip(self.labels, preds) if on] + self.extra_tags
         return Prediction(
             tags=tags, probabilities={l: float(p) for l, p in zip(self.labels, probs)},
             thresholds={l: float(t) for l, t in zip(self.labels, self.thresholds)}, rule_tags=rule_tags,
@@ -154,7 +155,12 @@ class Predictor:
                             preds[self.index[m]] = False
         if cp is not None and not (moves and final_board.is_checkmate()):
             oc = outcome_from_cp(cp)
-            self._set_group(preds, OUTCOME_TAGS, oc); why[oc] = f"rule: cp={cp}"
+            if oc in self.index:
+                self._set_group(preds, OUTCOME_TAGS, oc)
+            else:  # merged vocabulary: the model label is 'winning'; the fine-grained tag is reported as an extra
+                self._set_group(preds, OUTCOME_TAGS, "winning" if oc != "equality" else "equality")
+                self.extra_tags = [oc]
+            why[oc] = f"rule: cp={cp}"
             for m in MATE_IN_TAGS + EXCLUSIVE_GROUPS["matePattern"]:
                 if m in self.index:
                     preds[self.index[m]] = False

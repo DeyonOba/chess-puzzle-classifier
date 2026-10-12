@@ -2,7 +2,7 @@ _target_: src.models.puzzle_module.PuzzleLitModule
 defaults:
   - net: q2l_grouped
 labels: null                # explicit label list (overrides labels_path)
-labels_path: ${paths.data_dir}/puzzle_metadata.json   # label list; stored in the checkpoint afterwards
+labels_path: ${paths.data_dir}/puzzle_metadata_v2.json   # label list (v2 vocabulary); stored in the checkpoint afterwards
 loss: weighted_bce          # bce | weighted_bce | focal | asl
 pos_weight_cap: 20.0
 pos_weight_power: 0.5       # sqrt(neg/pos); 1.0 = linear

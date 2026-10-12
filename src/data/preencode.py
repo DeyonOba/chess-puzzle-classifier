@@ -39,30 +39,51 @@ CSV_COLUMNS = ["PuzzleId", "FEN", "Moves", "Rating", "Themes"]
 CHUNK_ROWS = 50_000
 
 
-def build_vocabulary(csv_path: str, excluded: tuple[str, ...], limit: int | None) -> tuple[list[str], Counter, int]:
-    """First pass: count themes and rows. Returns (sorted labels, counts, num_rows)."""
+def parse_merges(specs: list[str] | None) -> dict[str, str]:
+    """['winning=crushing,advantage'] -> {'crushing': 'winning', 'advantage': 'winning'}"""
+    mapping: dict[str, str] = {}
+    for spec in specs or []:
+        new, _, olds = spec.partition("=")
+        for old in olds.split(","):
+            mapping[old.strip()] = new.strip()
+    return mapping
+
+
+def build_vocabulary(csv_path: str, excluded: tuple[str, ...], limit: int | None,
+                     merges: dict[str, str] | None = None) -> tuple[list[str], Counter, int]:
+    """First pass: count themes and rows. Returns (sorted labels, counts, num_rows).
+
+    `merges` maps raw theme -> merged label (e.g. crushing/advantage -> winning);
+    counts are reported for both raw and merged names.
+    """
+    merges = merges or {}
     counts: Counter = Counter()
     num_rows = 0
     for chunk in pd.read_csv(csv_path, usecols=["Themes"], chunksize=500_000, nrows=limit):
         for themes in chunk["Themes"].fillna(""):
-            counts.update(themes.split())
+            ts = themes.split()
+            counts.update(ts)
+            counts.update({merges[t] for t in ts if t in merges})
         num_rows += len(chunk)
-    labels = sorted(t for t in counts if t not in excluded)
+    labels = sorted({merges.get(t, t) for t in counts if t not in excluded and t not in merges.values()} | set(merges.values()))
+    labels = [l for l in labels if l not in excluded]
     return labels, counts, num_rows
 
 
 _worker_state: dict = {}
 
 
-def _init_worker(label_index: dict[str, int], max_positions: int):
+def _init_worker(label_index: dict[str, int], max_positions: int, merges: dict[str, str] | None = None):
     _worker_state["label_index"] = label_index
     _worker_state["max_positions"] = max_positions
+    _worker_state["merges"] = merges or {}
 
 
 def _encode_chunk(rows: list[tuple[str, str, str, int, str]]):
     """Encode a list of (puzzle_id, fen, moves, rating, themes) rows."""
     label_index = _worker_state["label_index"]
     T = _worker_state["max_positions"]
+    merges = _worker_state["merges"]
     n = len(rows)
     boards = np.zeros((n, T, NUM_PLANES), dtype=np.uint64)
     lengths = np.zeros(n, dtype=np.uint8)
@@ -78,7 +99,7 @@ def _encode_chunk(rows: list[tuple[str, str, str, int, str]]):
         ratings[i] = rating
         ids[i] = pid.encode("ascii")
         for t in themes.split():
-            j = label_index.get(t)
+            j = label_index.get(merges.get(t, t))
             if j is not None:
                 targets[i, j] = 1
     return boards, lengths, targets, plies, ratings, ids
@@ -92,8 +113,10 @@ def build_hdf5_dataset(
     excluded_themes: tuple[str, ...] = DEFAULT_EXCLUDED_THEMES,
     limit: int | None = None,
     workers: int | None = None,
+    merges: dict[str, str] | None = None,
 ) -> dict:
-    labels, counts, num_rows = build_vocabulary(csv_path, excluded_themes, limit)
+    merges = merges or {}
+    labels, counts, num_rows = build_vocabulary(csv_path, excluded_themes, limit, merges)
     label_index = {t: i for i, t in enumerate(labels)}
     L = len(labels)
 
@@ -101,13 +124,15 @@ def build_hdf5_dataset(
         "labels": labels,
         "counts": {t: counts[t] for t in labels},
         "excluded_themes": {t: counts.get(t, 0) for t in excluded_themes},
+        "merges": merges,
+        "merged_source_counts": {t: counts.get(t, 0) for t in merges},
         "max_positions": max_positions,
         "num_samples": num_rows,
         "num_labels": L,
         "source_csv": str(pathlib.Path(csv_path).resolve()),
     }
 
-    with h5py.File(hdf5_out_path, "w") as h5f, Pool(workers, _init_worker, (label_index, max_positions)) as pool:
+    with h5py.File(hdf5_out_path, "w") as h5f, Pool(workers, _init_worker, (label_index, max_positions, merges)) as pool:
         d_boards = h5f.create_dataset(
             "boards", shape=(num_rows, max_positions, NUM_PLANES), dtype=np.uint64,
             chunks=(min(4096, num_rows), max_positions, NUM_PLANES), compression="lzf",
@@ -172,9 +197,12 @@ def main():
     p.add_argument("--workers", type=int, default=None, help="process pool size (default: all cores)")
     p.add_argument("--keep-rating-themes", action="store_true",
                    help="keep master/masterVsMaster/superGM in the vocabulary")
+    p.add_argument("--merge", action="append", default=None, metavar="NEW=A,B",
+                   help="merge raw themes into one label, e.g. --merge winning=crushing,advantage (repeatable)")
     args = p.parse_args()
     excluded = () if args.keep_rating_themes else DEFAULT_EXCLUDED_THEMES
-    meta = build_hdf5_dataset(args.csv, args.out, args.meta, args.max_positions, excluded, args.limit, args.workers)
+    meta = build_hdf5_dataset(args.csv, args.out, args.meta, args.max_positions, excluded, args.limit, args.workers,
+                              parse_merges(args.merge))
     print(f"wrote {meta['num_samples']:,} puzzles, {meta['num_labels']} labels, T={meta['max_positions']} -> {args.out}")
 
 
