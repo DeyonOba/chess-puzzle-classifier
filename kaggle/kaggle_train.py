@@ -29,9 +29,14 @@ sh("git", "clone", "--depth", "1", REPO, CODE)
 sh(sys.executable, "-m", "pip", "install", "-q", "lightning>=2.4", "hydra-core>=1.3", "omegaconf", "rootutils", "rich",
    "chess>=1.10", "torchmetrics>=1.4", "h5py", "tqdm")
 
-data_dirs = [d for d in glob.glob("/kaggle/input/*") if os.path.exists(f"{d}/puzzle_boards_v2.h5")]
-assert data_dirs, "attach the chess-puzzle-data-v2 dataset"
-data_dir = data_dirs[0]
+print("/kaggle/input tree:", flush=True)
+for root, dirs, files in os.walk("/kaggle/input"):
+    depth = root.count("/") - 2
+    if depth <= 2:
+        print("  " * depth + os.path.basename(root) + "/", *[f for f in files][:8], flush=True)
+h5s = glob.glob("/kaggle/input/**/puzzle_boards_v2.h5", recursive=True)
+assert h5s, "attach the chess-puzzle-data-v2 dataset (no puzzle_boards_v2.h5 under /kaggle/input)"
+data_dir = os.path.dirname(h5s[0])
 ckpts = sorted(glob.glob("/kaggle/input/**/last.ckpt", recursive=True), key=os.path.getmtime)
 resume = [f"ckpt_path={ckpts[-1]}"] if ckpts else []
 print("data:", data_dir, "| resume:", resume or "fresh run", flush=True)
