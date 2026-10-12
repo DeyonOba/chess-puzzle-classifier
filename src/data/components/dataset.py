@@ -3,7 +3,7 @@
 Random single-row access into an lzf-compressed, chunked HDF5 is slow (each
 read decompresses a whole chunk), so this dataset implements `__getitems__`
 and reads a batch of *sorted* indices as one contiguous slab. Pair it with
-`ContiguousBatchSampler` (src.data.datamodule) so each batch is a run of
+`ContiguousBatchSampler` (src.data.components.splits) so each batch is a run of
 neighbouring rows; the CSV is ordered by random puzzle id, so neighbouring
 rows are not correlated in content.
 """

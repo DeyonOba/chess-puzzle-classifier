@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from src.data.datamodule import ContiguousBatchSampler, iterative_stratified_split, split_report
+from src.data.components.splits import ContiguousBatchSampler, iterative_stratified_split, split_report
 
 
 def test_stratified_split_keeps_rare_label_ratio():

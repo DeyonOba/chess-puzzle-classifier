@@ -23,10 +23,10 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 
-from src.data.datamodule import load_splits, make_loader
-from src.data.dataset import PuzzleSequenceDataset
-from src.models.heads import build_adjacency
-from src.models.puzzle_classifier import PuzzleSequenceClassifier
+from src.data.components.splits import load_splits, make_loader
+from src.data.components.dataset import PuzzleSequenceDataset
+from src.models.components.heads import build_adjacency
+from src.models.components.puzzle_classifier import PuzzleSequenceClassifier
 from src.utils.losses import LOSS_NAMES, GroupedLoss, build_loss
 from src.utils.metrics import MultiLabelPuzzleMetrics
 from src.utils.thresholds import f1_at_thresholds, tune_thresholds

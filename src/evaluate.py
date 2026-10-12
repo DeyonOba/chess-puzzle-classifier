@@ -15,9 +15,9 @@ import pathlib
 import numpy as np
 import torch
 
-from src.data.datamodule import load_splits, make_loader
-from src.data.dataset import PuzzleSequenceDataset
-from src.models.puzzle_classifier import PuzzleSequenceClassifier
+from src.data.components.splits import load_splits, make_loader
+from src.data.components.dataset import PuzzleSequenceDataset
+from src.models.components.puzzle_classifier import PuzzleSequenceClassifier
 from src.train import pick_device, predict
 from src.utils.thresholds import f1_at_thresholds, tune_thresholds
 

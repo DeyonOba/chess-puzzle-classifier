@@ -10,7 +10,7 @@ uv sync                                                        # deps (python-ch
 scripts/fetch_puzzles.sh && scripts/decompress_zstd.sh         # data/lichess_db_puzzle.csv
 uv run python -m src.data.preencode --csv data/lichess_db_puzzle.csv \
     --out data/puzzle_boards.h5 --meta data/puzzle_metadata.json   # ~6 min, ~1.4 GB
-uv run python -m src.data.datamodule --h5 data/puzzle_boards.h5 --out data/splits.npz
+uv run python -m src.data.components.splits --h5 data/puzzle_boards.h5 --out data/splits.npz
 uv run python -m src.train --h5 data/puzzle_boards.h5 --splits data/splits.npz --run-name line_t12
 uv run python -m src.train --h5 data/puzzle_boards.h5 --splits data/splits.npz --run-name pos_only --max-positions 1
 uv run pytest

@@ -1,8 +1,8 @@
 import torch
 import torch.nn as nn
 
-from src.models.backbones.resnet_board import ResNetBoardEncoder
-from src.models.heads import GroupedReadoutMixin, MLGCNHead, Query2LabelHead
+from src.models.components.resnet_board import ResNetBoardEncoder
+from src.models.components.heads import GroupedReadoutMixin, MLGCNHead, Query2LabelHead
 from src.utils.label_groups import LabelLayout
 
 

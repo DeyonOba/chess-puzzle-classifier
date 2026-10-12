@@ -1,8 +1,8 @@
 import numpy as np
 import torch
 
-from src.models.heads import MLGCNHead, Query2LabelHead, build_adjacency
-from src.models.puzzle_classifier import PuzzleSequenceClassifier
+from src.models.components.heads import MLGCNHead, Query2LabelHead, build_adjacency
+from src.models.components.puzzle_classifier import PuzzleSequenceClassifier
 
 
 def test_build_adjacency_properties():

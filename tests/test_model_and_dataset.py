@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import torch
 
-from src.models.puzzle_classifier import PuzzleSequenceClassifier
+from src.models.components.puzzle_classifier import PuzzleSequenceClassifier
 
 DEV_H5 = pathlib.Path("data/dev/puzzle_boards_100k.h5")
 
@@ -35,7 +35,7 @@ def test_position_only_matches_t1():
 
 @pytest.mark.skipif(not DEV_H5.exists(), reason="dev HDF5 not built")
 def test_dataset_batches():
-    from src.data.dataset import PuzzleSequenceDataset
+    from src.data.components.dataset import PuzzleSequenceDataset
 
     ds = PuzzleSequenceDataset(DEV_H5)
     assert len(ds) == 100_000 and ds.num_labels == 70 and len(ds.labels) == 70

@@ -23,8 +23,8 @@ import pathlib
 
 import numpy as np
 
-from src.data.datamodule import load_splits, make_loader
-from src.data.dataset import PuzzleSequenceDataset
+from src.data.components.splits import load_splits, make_loader
+from src.data.components.dataset import PuzzleSequenceDataset
 from src.evaluate import load_model
 from src.train import pick_device, predict
 from src.utils.label_groups import EXCLUSIVE_GROUPS

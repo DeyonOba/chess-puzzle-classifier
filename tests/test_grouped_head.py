@@ -2,7 +2,7 @@ import json
 import numpy as np
 import torch
 
-from src.models.puzzle_classifier import PuzzleSequenceClassifier
+from src.models.components.puzzle_classifier import PuzzleSequenceClassifier
 from src.utils.label_groups import LabelLayout
 from src.utils.losses import GroupedLoss, build_loss
 

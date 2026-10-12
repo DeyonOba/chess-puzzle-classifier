@@ -1,7 +1,7 @@
 """Splits and loaders for the packed-bitboard HDF5 dataset.
 
 Split construction (run once per HDF5 file):
-    python -m src.data.datamodule --h5 data/puzzle_boards.h5 --out data/splits.npz \
+    python -m src.data.components.splits --h5 data/puzzle_boards.h5 --out data/splits.npz \
         [--fractions 0.9 0.05 0.05] [--seed 0]
 
 Produces an .npz with sorted int64 index arrays `train`, `val`, `test`, plus
@@ -19,7 +19,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, Sampler
 
-from src.data.dataset import PuzzleSequenceDataset, identity_collate
+from src.data.components.dataset import PuzzleSequenceDataset, identity_collate
 
 SPLIT_NAMES = ("train", "val", "test")
 
