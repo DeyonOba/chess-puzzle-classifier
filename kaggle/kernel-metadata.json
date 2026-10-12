@@ -1,5 +1,5 @@
 {
-  "id": "gideonoba/chess-puzzle-classifier-train",
+  "id": "gideonoba/chess-puzzle-classifier-full-data-training",
   "title": "chess-puzzle-classifier: full-data training",
   "code_file": "kaggle_train.py",
   "language": "python",

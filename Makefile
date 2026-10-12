@@ -92,4 +92,4 @@ kaggle-dataset: $(SPLITS)           # stage v2 files (hard links) + metadata, th
 kaggle-push:                        # push + run the training kernel (uses the GPU budget)
 	$(KAGGLE) kernels push -p kaggle
 kaggle-status:
-	$(KAGGLE) kernels status $(KAGGLE_USER)/chess-puzzle-classifier-train
+	$(KAGGLE) kernels status $(KAGGLE_USER)/chess-puzzle-classifier-full-data-training

@@ -7,9 +7,9 @@
    `kernel-metadata.json`: GPU + internet, dataset attached). The run uses `experiment=kaggle`
    (see `configs/experiment/kaggle.yaml`): 11 h max, early stopping, resumable.
 3. To continue in the next session, add the previous kernel's output as an input source
-   (`"kernel_sources": ["gideonoba/chess-puzzle-classifier-train"]`) and push again; the script resumes
+   (`"kernel_sources": ["gideonoba/chess-puzzle-classifier-full-data-training"]`) and push again; the script resumes
    from the newest `last.ckpt` it finds under `/kaggle/input`.
 4. Download `logs/train/runs/q2lg_full` from the output; evaluate locally with
    `python -m src.eval ckpt_path=.../best.ckpt` and `python -m src.analyze`.
 
-Monitor: `kaggle kernels status gideonoba/chess-puzzle-classifier-train`; stop from the Kaggle UI.
+Monitor: `kaggle kernels status gideonoba/chess-puzzle-classifier-full-data-training`; stop from the Kaggle UI.
