@@ -104,10 +104,11 @@ class PuzzleLitModule(L.LightningModule):
         base = build_loss(loss, None, pos_weight_cap, pos_weight_power, focal_gamma, focal_alpha,
                           asl_gamma_neg, asl_gamma_pos, asl_clip, num_labels=n_free)
         self.criterion = GroupedLoss(self.net.head, base, None, pos_weight_cap, pos_weight_power, group_weight) if self.layout else base
-        self.val_loss_fn = nn.BCEWithLogitsLoss()  # always plain BCE so runs with different losses are comparable
 
         self.register_buffer("thresholds", torch.full((L_,), 0.5))
-        self.metrics = MultiLabelPuzzleMetrics(L_)
+        # kept out of the module tree on purpose: metrics are computed on CPU over the whole split.
+        # On MPS the torchmetrics kernels produced out-of-bounds indices at ~100k rows (2026-10-12).
+        self._metrics_holder = [MultiLabelPuzzleMetrics(L_)]
         self._val_buf: list[tuple[np.ndarray, np.ndarray]] = []
         self._test_buf: list[tuple[np.ndarray, np.ndarray]] = []
         self.test_results: dict | None = None
@@ -171,13 +172,12 @@ class PuzzleLitModule(L.LightningModule):
         return probs, targets
 
     def _fixed_metrics(self, probs: np.ndarray, targets: np.ndarray) -> dict:
-        # the torchmetrics states live on the module's device (Lightning moves them), so feed them there
-        device = self.device
-        logits = torch.logit(torch.from_numpy(probs).clamp(1e-7, 1 - 1e-7)).to(device)
-        t = torch.from_numpy(targets).to(device)
-        self.metrics.reset(); self.metrics.update(logits, t)
-        out = self.metrics.compute()
-        out["loss"] = self.val_loss_fn(logits, t.float()).item()
+        metrics = self._metrics_holder[0]  # CPU, see __init__
+        logits = torch.logit(torch.from_numpy(probs).clamp(1e-7, 1 - 1e-7))
+        t = torch.from_numpy(targets)
+        metrics.reset(); metrics.update(logits, t)
+        out = metrics.compute()
+        out["loss"] = F.binary_cross_entropy_with_logits(logits, t.float()).item()
         return out
 
     def on_validation_epoch_end(self):
