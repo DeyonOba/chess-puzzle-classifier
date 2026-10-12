@@ -184,18 +184,56 @@ hangingPiece -0.17, exposedKing -0.16, swallowstailMate -0.11, xRayAttack -0.10.
   (spread up to 0.008), so the headline is "no worse, better calibrated,
   gains and losses on different label sets", not a clear win.
 
+## Group-weight sweep: q2l_grouped at group_weight 0.5 (added 2026-10-12)
+
+Same protocol; the 7 group cross-entropy terms are halved relative to the
+free-label sigmoid loss.
+
+| head | tuned micro-F1 | tuned macro-F1 | tuned macro-P | tuned macro-R | tuned exact | untuned macro-F1 | untuned micro-F1 | untuned exact |
+|---|---|---|---|---|---|---|---|---|
+| q2l | 0.801 | 0.561 | 0.533 | 0.615 | 0.219 | 0.515 | 0.814 | 0.241 |
+| q2l_grouped gw=1 | 0.799 | 0.573 | 0.544 | 0.628 | 0.235 | 0.540 | 0.813 | 0.274 |
+| q2l_grouped gw=0.5 | **0.815** | **0.580** | **0.559** | 0.624 | **0.252** | **0.542** | **0.814** | **0.274** |
+
+| subset | q2l | gw=1 | gw=0.5 |
+|---|---|---|---|
+| group mateIn | 0.764 | **0.850** | 0.827 |
+| group matePattern | 0.499 | **0.583** | 0.535 |
+| group endgameType | 0.956 | 0.971 | **0.972** |
+| group attackSide | 0.648 | **0.699** | 0.694 |
+| free labels (27) | 0.366 | 0.312 | **0.369** |
+| band common | **0.781** | 0.774 | 0.780 |
+| band mid | 0.589 | 0.569 | **0.593** |
+| band rare | 0.366 | **0.426** | 0.415 |
+| enPassant / hangingPiece / exposedKing | 0.471 | 0.266 | **0.516** |
+| dead labels | 5 | 6 | **2** |
+
+### Reading
+
+- Halving the group weight removes the free-label regression entirely
+  (0.369 vs 0.366 for plain q2l; the three worst-hit labels go from 0.27
+  back to 0.52) while keeping about two thirds of the grouped gains
+  (mateIn 0.83, matePattern 0.54, rare band 0.42).
+- Net: +0.019 tuned macro-F1 over q2l, best micro-F1 and exact match of
+  any run, and only 2 dead labels (down from 7 for the pooled flat head).
+  The gain is now spread across subsets rather than traded between them.
+- The weight is a real knob: gw=1 maximises the grouped labels, gw=0.5
+  maximises the whole. A value between, or a schedule, was not tried.
+
 ## Decision
 
 - Query2Label is the default head (commit afe0643, approved 2026-10-12).
 - The pooling control is done (above): the decoder's cross-attention, not
   merely un-pooling, is what delivers the gain.
-- q2l + grouped readout tried (above): +0.012 macro-F1, better calibration,
-  free labels regress. Default stays q2l pending a group-weight sweep or a
-  second seed.
+- q2l + grouped readout at group_weight 0.5 is the best configuration
+  measured: +0.019 tuned macro-F1 over q2l with no subset worse than q2l
+  by more than 0.002. Recommend making `--head q2l_grouped --group-weight
+  0.5` the default. Pending approval.
 - Remaining follow-ups:
-  1. q2l_grouped with --group-weight 0.5 (and seed 1 for both heads).
-  2. q2l at batch 256 / seed 1 on a GPU host; q2l decoder depth 2.
-  3. Co-occurrence confusion matrix and rank evaluation on the q2l model.
+  1. Seed 1 for q2l and q2l_grouped gw=0.5 to size the noise at this budget.
+  2. q2l at batch 256 on a GPU host; decoder depth 2.
+  3. Co-occurrence confusion and ranking analysis: see
+     experiments/2026-10-12_cooccurrence_analysis.md.
 
 ## Caveats
 
