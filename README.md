@@ -137,6 +137,21 @@ the API reports which model answered.
 Full-scale runs (`experiment=kaggle` / `experiment=full_gpu`) are the next
 results to add here.
 
+### Refactor parity check (v1 vocabulary, same bounded protocol)
+
+The pre-refactor trainer (plain PyTorch loop) and the Lightning/Hydra
+`experiment=bounded_laptop` run of the same configuration, seed 0:
+
+| | tuned macro-F1 | tuned micro-F1 | tuned exact | argmax macro-F1 | argmax exact |
+|---|---|---|---|---|---|
+| before refactor (commit d268320) | 0.580 | 0.815 | 0.252 | 0.555 | 0.272 |
+| after refactor (Lightning) | 0.580 | 0.815 | 0.252 | 0.555 | 0.272 |
+
+Model initialisation differs (Lightning's `seed_everything` vs a bare
+`torch.manual_seed`), so the runs are not bit-identical; agreement within the
+measured seed spread (under 0.01 macro-F1) is the pass criterion.
+
+
 ## Pipeline
 
 ```bash
