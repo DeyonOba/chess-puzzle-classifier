@@ -90,15 +90,61 @@ Largest per-label changes vs flat:
   more parameters. Neither plausibly explains a 0.17 gap; the flat head at
   2x steps is a cheap control if wanted.
 
-## Decision (pending approval)
+## Controls (added 2026-10-12, commit afe0643)
 
-- Recommend Query2Label as the default head.
-- Follow-up experiments, in order of expected value:
-  1. Control for the pooling hypothesis: flat head on the un-pooled
-     (flattened or attention-pooled) spatial map. If it closes most of the
-     gap, the decoder is optional and a cheaper head suffices.
-  2. q2l + grouped softmax readout (the two gains are on different axes).
-  3. q2l at batch 256 / seed 1 on a GPU host to remove the confounds.
+Two runs at Query2Label's exact protocol (batch 128 x 3000 steps, 2 loader
+workers, seed 0) to separate the two confounds: `flat` again, so the extra
+optimizer steps are measured alone, and `flat_spatial`, the pooled MLP head
+fed each position's flattened (D, 8, 8) map through a linear projection,
+which keeps square identity but has no attention or label queries.
+
+| run | params | tuned micro-F1 | tuned macro-F1 | tuned macro-P | tuned macro-R | untuned macro-F1 | untuned micro-F1 |
+|---|---|---|---|---|---|---|---|
+| flat, batch 256 x 1500 | 0.93M | 0.713 | 0.387 | 0.361 | 0.456 | 0.343 | 0.770 |
+| flat, batch 128 x 3000 | 0.93M | 0.701 | 0.410 | 0.379 | 0.496 | 0.365 | 0.774 |
+| flat_spatial, batch 128 x 3000 | 1.98M | 0.734 | 0.442 | 0.415 | 0.507 | 0.402 | 0.777 |
+| q2l, batch 128 x 3000 | 1.13M | **0.801** | **0.561** | **0.533** | **0.615** | **0.515** | **0.814** |
+
+| subset | flat | flat b128 | flat_spatial | q2l |
+|---|---|---|---|---|
+| matePattern (19) | 0.218 | 0.257 | 0.334 | 0.499 |
+| endgameType (6) | 0.752 | 0.807 | 0.865 | 0.956 |
+| free labels (27) | 0.199 | 0.208 | 0.225 | 0.366 |
+| band common | 0.702 | 0.707 | 0.714 | 0.781 |
+| band mid | 0.391 | 0.417 | 0.450 | 0.589 |
+| band rare | 0.144 | 0.178 | 0.226 | 0.366 |
+| promotion + advancedPawn | 0.440 | 0.455 | 0.572 | 0.863 |
+| dead labels | 7 | 7 | 7 | 5 |
+
+### Decomposition of the 0.174 gap (flat -> q2l, tuned macro-F1)
+
+- Extra optimizer steps (batch 128 x 3000 vs 256 x 1500): **+0.023**
+- Keeping square identity (flat_spatial vs flat b128): **+0.032**
+- Attention with label queries (q2l vs flat_spatial): **+0.119**
+
+So the pooling hypothesis is only partly right. Removing global average
+pooling helps, most visibly on the location-dependent themes (promotion +
+advancedPawn 0.46 -> 0.57), but a fixed linear read of the square map
+captures a small fraction of what label-query cross-attention does
+(0.57 -> 0.86 on the same pair). The decoder is doing the work: each
+label query can look at a different square of a different position, which
+a single projection per position cannot. Note flat_spatial has 1.75x the
+parameters of q2l and still trails it by 0.12.
+
+Implication: a cheaper head is not an option; the attention over
+per-square, per-position tokens is the mechanism. Attention over the
+*positions* of the pooled vectors (the existing `--pooling attention`) is
+not the same thing and was never a candidate explanation.
+
+## Decision
+
+- Query2Label is the default head (commit afe0643, approved 2026-10-12).
+- The pooling control is done (above): the decoder's cross-attention, not
+  merely un-pooling, is what delivers the gain.
+- Remaining follow-ups:
+  1. q2l + grouped softmax readout (the two gains are on different axes).
+  2. q2l at batch 256 / seed 1 on a GPU host; q2l decoder depth 2.
+  3. Co-occurrence confusion matrix and rank evaluation on the q2l model.
 
 ## Caveats
 
