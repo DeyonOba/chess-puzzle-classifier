@@ -134,6 +134,36 @@ winning) and loses the ones that are properties of the solution (length, mate
 depth, mate patterns, most tactics), which is the expected split and the reason
 the API reports which model answered.
 
+### Attack-map input planes (v2 vocabulary, bounded protocol, test split)
+
+`preencode --planes extended` adds 8 exact python-chess planes to the 18 base
+planes: squares attacked by each side, pinned pieces per side, hanging pieces
+per side, the checking pieces, and an in-check indicator. Same rows, splits,
+model and protocol as the v2 line model above (`experiment=attack_planes_laptop`).
+
+| input | decoding | micro-F1 | macro-F1 | macro-P | macro-R | exact match | dead labels |
+|---|---|---|---|---|---|---|---|
+| base planes (18) | independent thresholds | 0.859 | 0.586 | 0.572 | 0.622 | 0.342 | 2 |
+| base planes (18) | argmax within groups | 0.854 | 0.563 | 0.513 | 0.665 | 0.322 | 3 |
+| attack-map planes (26) | independent thresholds | **0.894** | **0.640** | **0.628** | 0.675 | **0.444** | 3 |
+| attack-map planes (26) | argmax within groups | 0.888 | 0.614 | 0.572 | **0.716** | 0.419 | 3 |
+
+Tuned per-subset F1, base / attack-map: free tactical labels 0.37 / **0.48**,
+mateIn 0.85 / **0.91**, common band 0.81 / **0.88**, mid band 0.60 / **0.67**,
+rare band 0.42 / 0.44; length, endgame type and phase unchanged. Largest
+per-label gains are exactly the facts the planes encode: doubleCheck +0.55,
+pin +0.54, discoveredCheck +0.29, hangingPiece +0.20, fork +0.18, skewer +0.15.
+Small losses on four rare mate patterns (swallowstail, killBox, smothered,
+castling, 0.08 to 0.15) are within single-seed noise for labels with under
+100 test positives.
+
+Reading: +0.054 macro-F1 and +0.10 exact match from input features alone,
+larger than the Query2Label-over-flat gain after the pooling controls. The
+encoder no longer has to rediscover attacks, pins and hanging pieces from
+piece placement, so its capacity goes to the tags. Encoding costs 4.5x
+(17 min for the full file instead of 4) and the HDF5 grows from 1.26 GB to
+1.8 GB.
+
 Full-scale runs (`experiment=kaggle` / `experiment=full_gpu`) are the next
 results to add here.
 
