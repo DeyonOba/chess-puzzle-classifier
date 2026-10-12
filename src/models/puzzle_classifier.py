@@ -2,11 +2,11 @@ import torch
 import torch.nn as nn
 
 from src.models.backbones.resnet_board import ResNetBoardEncoder
-from src.models.heads import MLGCNHead, Query2LabelHead
+from src.models.heads import GroupedReadoutMixin, MLGCNHead, Query2LabelHead
 from src.utils.label_groups import LabelLayout
 
 
-class GroupedHead(nn.Module):
+class GroupedHead(GroupedReadoutMixin, nn.Module):
     """Softmax per mutually exclusive group (with a 'none' class) + sigmoid for free labels.
 
     Output layout is (B, L + G): the first L columns line up with the flat label
@@ -24,17 +24,6 @@ class GroupedHead(nn.Module):
 
     def forward(self, pooled: torch.Tensor) -> torch.Tensor:
         return self.out(self.mlp(pooled))
-
-    def group_logits(self, raw: torch.Tensor) -> list[torch.Tensor]:
-        L = self.layout.num_labels
-        return [torch.cat([raw[:, idx], raw[:, L + g : L + g + 1]], dim=1) for g, (_, idx) in enumerate(self.layout.groups)]
-
-    def probs(self, raw: torch.Tensor) -> torch.Tensor:
-        L = self.layout.num_labels
-        out = torch.sigmoid(raw[:, :L])
-        for (_, idx), gl in zip(self.layout.groups, self.group_logits(raw)):
-            out[:, idx] = torch.softmax(gl, dim=1)[:, : len(idx)]
-        return out
 
 
 class PuzzleSequenceClassifier(nn.Module):
@@ -67,7 +56,7 @@ class PuzzleSequenceClassifier(nn.Module):
         if pooling not in ("mean", "attention"):
             raise ValueError(f"pooling must be 'mean' or 'attention', got {pooling!r}")
         self.encoder = ResNetBoardEncoder(in_planes, hidden_dim, num_res_blocks)
-        self.ply_embedding = nn.Embedding(max_positions, hidden_dim) if head != "q2l" else None  # q2l adds its own
+        self.ply_embedding = nn.Embedding(max_positions, hidden_dim) if not head.startswith("q2l") else None  # q2l adds its own
         self.pooling = pooling
         if pooling == "attention":
             self.attn = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.Tanh(), nn.Linear(hidden_dim, 1))
@@ -88,21 +77,29 @@ class PuzzleSequenceClassifier(nn.Module):
             self.head = GroupedHead(hidden_dim, LabelLayout(labels), dropout)
         elif head == "q2l":
             self.head = Query2LabelHead(num_labels, hidden_dim, max_positions, **(head_kwargs or {}))
+        elif head == "q2l_grouped":
+            if labels is None or len(labels) != num_labels:
+                raise ValueError("head='q2l_grouped' needs the label list")
+            self.head = Query2LabelHead(num_labels, hidden_dim, max_positions, layout=LabelLayout(labels), **(head_kwargs or {}))
         elif head == "mlgcn":
             self.head = MLGCNHead(num_labels, hidden_dim, **(head_kwargs or {}))
         else:
-            raise ValueError(f"head must be one of flat/flat_spatial/grouped/q2l/mlgcn, got {head!r}")
+            raise ValueError(f"head must be one of flat/flat_spatial/grouped/q2l/q2l_grouped/mlgcn, got {head!r}")
 
     def probs(self, raw: torch.Tensor) -> torch.Tensor:
         """Per-label probabilities (B, L) from the raw head output."""
-        return self.head.probs(raw) if self.head_type == "grouped" else torch.sigmoid(raw)
+        return self.head.probs(raw) if self.grouped else torch.sigmoid(raw)
+
+    @property
+    def grouped(self) -> bool:
+        return getattr(self.head, "layout", None) is not None
 
     def forward(self, boards: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
         B, T = boards.shape[:2]
         mask = torch.arange(T, device=boards.device)[None, :] < lengths[:, None]  # (B, T)
         flat_mask = mask.reshape(-1)
 
-        if self.head_type == "q2l":  # needs the spatial map of every valid position
+        if self.head_type.startswith("q2l"):  # needs the spatial map of every valid position
             valid_spatial = self.encoder.spatial(boards.flatten(0, 1)[flat_mask])  # (sum(lengths), D, 8, 8)
             spatial = valid_spatial.new_zeros(B * T, *valid_spatial.shape[1:])
             spatial[flat_mask] = valid_spatial

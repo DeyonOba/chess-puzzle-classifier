@@ -86,7 +86,7 @@ def main():
     p.add_argument("--runs-dir", default="runs")
     p.add_argument("--max-positions", type=int, default=None, help="1 = position-only; default = all in file")
     p.add_argument("--pooling", choices=["mean", "attention"], default="mean")
-    p.add_argument("--head", choices=["flat", "flat_spatial", "grouped", "q2l", "mlgcn"], default="q2l",
+    p.add_argument("--head", choices=["flat", "flat_spatial", "grouped", "q2l", "q2l_grouped", "mlgcn"], default="q2l",
                    help="q2l (default) attends over per-square features; flat_spatial is the pooling control")
     p.add_argument("--q2l-layers", type=int, default=1)
     p.add_argument("--q2l-heads", type=int, default=4)
@@ -128,10 +128,11 @@ def main():
     train_loader = make_loader(dataset, splits["train"], args.batch_size, True, args.num_workers, args.seed, drop_last=True)
     val_loader = make_loader(dataset, splits["val"], args.batch_size, False, args.num_workers)
 
-    needs_targets = args.loss == "weighted_bce" or args.head in ("grouped", "mlgcn")
+    grouped = args.head in ("grouped", "q2l_grouped")
+    needs_targets = args.loss == "weighted_bce" or grouped or args.head == "mlgcn"
     train_targets = dataset.read_targets()[splits["train"]] if needs_targets else None
     head_kwargs = {}
-    if args.head == "q2l":
+    if args.head.startswith("q2l"):
         head_kwargs = {"num_layers": args.q2l_layers, "num_heads": args.q2l_heads}
     elif args.head == "mlgcn":
         adjacency, cond = build_adjacency(train_targets, args.mlgcn_tau, args.mlgcn_p)
@@ -141,12 +142,12 @@ def main():
         max_positions=dataset.max_positions, pooling=args.pooling, dropout=args.dropout,
         head=args.head, labels=dataset.labels, head_kwargs=head_kwargs,
     ).to(device)
-    free_targets = train_targets[:, model.head.layout.free] if args.head == "grouped" and train_targets is not None else train_targets
+    free_targets = train_targets[:, model.head.layout.free] if grouped and train_targets is not None else train_targets
     loss_fn = build_loss(
         args.loss, free_targets, args.pos_weight_cap, args.pos_weight_power, args.focal_gamma, args.focal_alpha,
         args.asl_gamma_neg, args.asl_gamma_pos, args.asl_clip,
     )
-    if args.head == "grouped":
+    if grouped:
         loss_fn = GroupedLoss(model.head, loss_fn, train_targets, args.pos_weight_cap, args.pos_weight_power, args.group_weight)
     loss_fn = loss_fn.to(device)
     del train_targets, free_targets

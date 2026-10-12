@@ -24,7 +24,7 @@ from src.utils.thresholds import f1_at_thresholds, tune_thresholds
 
 def head_kwargs_from_config(cfg: dict) -> dict:
     head = cfg.get("head", "flat")
-    if head == "q2l":
+    if head.startswith("q2l"):
         return {"num_layers": cfg["q2l_layers"], "num_heads": cfg["q2l_heads"]}
     if head == "mlgcn":
         return {"gcn_dim": cfg["mlgcn_dim"]}  # adjacency / embeddings come from the state dict

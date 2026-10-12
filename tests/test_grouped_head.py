@@ -53,3 +53,23 @@ def test_flat_head_unchanged():
     m = PuzzleSequenceClassifier(len(LABELS), hidden_dim=16, num_res_blocks=1, max_positions=4)
     raw = m(torch.rand(2, 4, 18, 8, 8).round(), torch.tensor([1, 4]))
     assert raw.shape == (2, len(LABELS)) and torch.allclose(m.probs(raw), torch.sigmoid(raw))
+
+
+def test_q2l_grouped_probs_loss_and_padding():
+    torch.manual_seed(0)
+    m = PuzzleSequenceClassifier(len(LABELS), hidden_dim=16, num_res_blocks=1, max_positions=4, head="q2l_grouped",
+                                 labels=LABELS, head_kwargs={"num_layers": 1, "num_heads": 2}).eval()
+    assert m.grouped and m.head.queries.shape[0] == len(LABELS) + 3
+    boards = torch.rand(4, 4, 18, 8, 8).round(); lengths = torch.tensor([1, 2, 4, 3])
+    raw = m(boards, lengths)
+    assert raw.shape == (4, len(LABELS) + 3)
+    p = m.probs(raw)
+    for _, idx in m.head.layout.groups:
+        assert (p[:, idx].sum(1) <= 1 + 1e-5).all()
+    noisy = boards.clone()
+    for b, n in enumerate(lengths.tolist()):
+        noisy[b, n:] = torch.rand(4 - n, 18, 8, 8).round()
+    torch.testing.assert_close(m(noisy, lengths), raw, atol=1e-5, rtol=1e-4)
+    Y = (np.random.default_rng(0).random((100, len(LABELS))) < 0.3).astype(np.uint8)
+    loss = GroupedLoss(m.head, build_loss("weighted_bce", Y[:, m.head.layout.free]), Y)(raw, torch.from_numpy(Y[:4]).float())
+    m.train(); loss.backward(); assert torch.isfinite(loss)

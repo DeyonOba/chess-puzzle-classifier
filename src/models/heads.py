@@ -19,19 +19,40 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+from src.utils.label_groups import LabelLayout
 
-class Query2LabelHead(nn.Module):
+
+class GroupedReadoutMixin:
+    """Shared by heads whose raw output is (B, L + G): L label logits + one 'none' logit per group."""
+
+    layout: LabelLayout
+
+    def group_logits(self, raw: torch.Tensor) -> list[torch.Tensor]:
+        L = self.layout.num_labels
+        return [torch.cat([raw[:, idx], raw[:, L + g : L + g + 1]], dim=1) for g, (_, idx) in enumerate(self.layout.groups)]
+
+    def probs(self, raw: torch.Tensor) -> torch.Tensor:
+        L = self.layout.num_labels
+        out = torch.sigmoid(raw[:, :L])
+        for (_, idx), gl in zip(self.layout.groups, self.group_logits(raw)):
+            out[:, idx] = torch.softmax(gl, dim=1)[:, : len(idx)]
+        return out
+
+
+class Query2LabelHead(GroupedReadoutMixin, nn.Module):
     def __init__(self, num_labels: int, hidden_dim: int, max_positions: int, num_layers: int = 1,
-                 num_heads: int = 4, dropout: float = 0.1):
+                 num_heads: int = 4, dropout: float = 0.1, layout: LabelLayout | None = None):
         super().__init__()
         self.hidden_dim = hidden_dim
-        self.queries = nn.Parameter(torch.randn(num_labels, hidden_dim) * 0.02)
+        self.layout = layout  # if set: G extra 'none' queries, grouped softmax readout
+        num_queries = num_labels + (layout.num_groups if layout is not None else 0)
+        self.queries = nn.Parameter(torch.randn(num_queries, hidden_dim) * 0.02)
         self.square_embedding = nn.Parameter(torch.randn(64, hidden_dim) * 0.02)
         self.ply_embedding = nn.Embedding(max_positions, hidden_dim)
         layer = nn.TransformerDecoderLayer(hidden_dim, num_heads, dim_feedforward=2 * hidden_dim, dropout=dropout, batch_first=True)
         self.decoder = nn.TransformerDecoder(layer, num_layers)
-        self.readout_w = nn.Parameter(torch.randn(num_labels, hidden_dim) * 0.02)
-        self.readout_b = nn.Parameter(torch.zeros(num_labels))
+        self.readout_w = nn.Parameter(torch.randn(num_queries, hidden_dim) * 0.02)
+        self.readout_b = nn.Parameter(torch.zeros(num_queries))
 
     def forward(self, spatial: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         """spatial: (B, T, D, 8, 8) features (zeros where padded); mask: (B, T) bool valid."""
