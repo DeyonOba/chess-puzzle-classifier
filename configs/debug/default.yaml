@@ -12,6 +12,7 @@ data:
 model:
   labels_path: ${paths.data_dir}/dev/puzzle_metadata_100k.json
   net:
+    in_planes: 18             # data/dev is a base-plane file
     hidden_dim: 32
     num_res_blocks: 1
 trainer:

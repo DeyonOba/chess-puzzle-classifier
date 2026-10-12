@@ -1,6 +1,6 @@
 # Kaggle full-data training
 
-1. `make data` locally, then upload the three v2 files as the dataset `gideonoba/chess-puzzle-data-v2`
+1. `make data` locally (attack-map planes by default), then upload the HDF5 + metadata + splits as the dataset `gideonoba/chess-puzzle-data-v2`
    (`kaggle datasets create -p data/kaggle_dataset`; the metadata file is written by the Makefile target
    `kaggle-dataset`). The `.h5` is 1.3 GB.
 2. `kaggle kernels push -p kaggle` pushes and runs `kaggle_train.py` on a GPU (settings in
@@ -13,3 +13,5 @@
    `python -m src.eval ckpt_path=.../best.ckpt` and `python -m src.analyze`.
 
 Monitor: `kaggle kernels status gideonoba/chess-puzzle-classifier-full-data-training`; stop from the Kaggle UI.
+
+The script accepts either `puzzle_boards_v2x.h5` (26 planes, default) or `puzzle_boards_v2.h5` (18 planes) in the attached dataset and sets `model.net.in_planes` to match. The dataset currently uploaded holds the base-plane file; run `make kaggle-dataset` after `make data` to add the v2x version.

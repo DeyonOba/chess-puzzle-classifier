@@ -34,16 +34,22 @@ for root, dirs, files in os.walk("/kaggle/input"):
     depth = root.count("/") - 2
     if depth <= 2:
         print("  " * depth + os.path.basename(root) + "/", *[f for f in files][:8], flush=True)
-h5s = glob.glob("/kaggle/input/**/puzzle_boards_v2.h5", recursive=True)
-assert h5s, "attach the chess-puzzle-data-v2 dataset (no puzzle_boards_v2.h5 under /kaggle/input)"
+h5s = glob.glob("/kaggle/input/**/puzzle_boards_v2x.h5", recursive=True) or glob.glob("/kaggle/input/**/puzzle_boards_v2.h5", recursive=True)
+assert h5s, "attach the chess-puzzle-data-v2 dataset (no puzzle_boards_v2x.h5 / puzzle_boards_v2.h5 under /kaggle/input)"
 data_dir = os.path.dirname(h5s[0])
+h5_name = os.path.basename(h5s[0])
+suffix = "v2x" if h5_name.endswith("v2x.h5") else "v2"
+planes = 26 if suffix == "v2x" else 18
+data_overrides = [f"data.h5_path={h5s[0]}", f"data.splits_path={data_dir}/splits_v2.npz",
+                  f"model.labels_path={data_dir}/puzzle_metadata_{suffix}.json", f"model.net.in_planes={planes}"]
+print("planes:", planes, "| file:", h5_name, flush=True)
 ckpts = sorted(glob.glob("/kaggle/input/**/last.ckpt", recursive=True), key=os.path.getmtime)
 resume = [f"ckpt_path={ckpts[-1]}"] if ckpts else []
 print("data:", data_dir, "| resume:", resume or "fresh run", flush=True)
 
 os.chdir(CODE)
 sh(sys.executable, "-m", "src.train", "experiment=kaggle", f"run_name={RUN_NAME}",
-   f"paths.data_dir={data_dir}", f"paths.log_dir={WORK}/logs", *resume, *sys.argv[1:])
+   f"paths.data_dir={data_dir}", f"paths.log_dir={WORK}/logs", *data_overrides, *resume, *sys.argv[1:])
 
 # keep the output small: the run directory is what matters
 shutil.rmtree(f"{CODE}/.git", ignore_errors=True)

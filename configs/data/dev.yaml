@@ -1,4 +1,4 @@
-# 100k-row subset built with: python -m src.data.preencode --limit 100000 ... (see data/dev/)
+# 100k-row subset, base planes (18), built by `make dev` (see data/dev/); pair with model.net.in_planes=18
 defaults:
   - puzzle
 h5_path: ${paths.data_dir}/dev/puzzle_boards_100k.h5

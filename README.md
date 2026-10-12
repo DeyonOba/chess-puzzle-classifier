@@ -28,8 +28,8 @@ pattern, endgame type, attack side) and hard implications such as
 |---|---|---|
 | source | Lichess puzzle dump, 6.16M puzzles, 4.5 tags per puzzle on average | `scripts/` |
 | positions | FEN after the setup move (what the solver sees), then after each solution ply; T_max = 12 covers 99.7%, longer lines truncated | `src/utils/bitboard_encoder.py` |
-| encoding | 18 planes per position (12 piece, side to move, 4 castling, en passant) stored as packed `uint64` bitboards, 144 B per position, unpacked in the DataLoader | same |
-| storage | HDF5 `(N, 12, 18) uint64` + lengths, targets, plies, rating, puzzle id; 1.3 GB; multiprocess streaming encode in ~5 min | `src/data/preencode.py` |
+| encoding | 26 planes per position stored as packed `uint64` bitboards: 12 piece planes, side to move, 4 castling, en passant, plus 8 **attack-map planes** from python-chess (squares attacked by each side, pinned pieces, hanging pieces, checking pieces, in-check); `--planes base` gives the 18-plane version | same |
+| storage | HDF5 `(N, 12, 26) uint64` + lengths, targets, plies, rating, puzzle id; 1.8 GB; multiprocess streaming encode in ~17 min (4 min for base planes) | `src/data/preencode.py` |
 | vocabulary | **v2: 69 labels.** `crushing` + `advantage` merged into `winning` (an engine centipawn threshold the board does not expose); `master`, `masterVsMaster`, `superGM` dropped (player-rating tags) | `preencode --merge` |
 | splits | iterative multi-label stratification (Sechidis 2011), 90 / 5 / 5, index arrays in `splits_v2.npz`; the rarest label lands within one sample of its target share in every split | `src/data/components/splits.py` |
 | loading | batches are consecutive HDF5 rows (the file is in random puzzle-id order) read as one slab, so the lzf-chunked file streams at ~50k puzzles/s | `components/dataset.py`, `PuzzleDataModule` |
@@ -139,7 +139,8 @@ the API reports which model answered.
 `preencode --planes extended` adds 8 exact python-chess planes to the 18 base
 planes: squares attacked by each side, pinned pieces per side, hanging pieces
 per side, the checking pieces, and an in-check indicator. Same rows, splits,
-model and protocol as the v2 line model above (`experiment=attack_planes_laptop`).
+model and protocol as the v2 line model above. Attack-map planes are now the
+default input (`experiment=base_planes_laptop` reproduces the 18-plane row).
 
 | input | decoding | micro-F1 | macro-F1 | macro-P | macro-R | exact match | dead labels |
 |---|---|---|---|---|---|---|---|
@@ -186,7 +187,7 @@ measured seed spread (under 0.01 macro-F1) is the pass criterion.
 
 ```bash
 make setup                      # uv sync
-make data                       # download (300 MB) -> decompress (1.1 GB) -> encode HDF5 (~5 min, 1.3 GB) -> splits
+make data                       # download (300 MB) -> decompress (1.1 GB) -> encode HDF5 (~17 min, 1.8 GB, attack-map planes) -> splits
 make dev                        # 100k-row subset in data/dev/ for smoke runs and tests
 make test                       # pytest
 make train ARGS="run_name=q2lg_s0"
@@ -196,16 +197,17 @@ make serve CKPT=logs/train/runs/q2lg_s0/checkpoints/best.ckpt POS_CKPT=logs/trai
 
 `make data` is file-driven: each step runs only if its output is missing, so
 re-running after a partial download or a changed `--merge` (`make clean-data`)
-does the minimum. Variables: `DATA_DIR`, `MERGE` (default
-`winning=crushing,advantage`), `T_MAX` (12), `DEV_N` (100000). The underlying
+does the minimum. Variables: `DATA_DIR`, `PLANES` (`extended`, the default,
+or `base`), `MERGE` (default `winning=crushing,advantage`), `T_MAX` (12),
+`DEV_N` (100000). The dev subset is built with base planes for the tests. The underlying
 commands:
 
 ```bash
 scripts/fetch_puzzles.sh && scripts/decompress_zstd.sh         # data/lichess_db_puzzle.csv
 uv run python -m src.data.preencode --csv data/lichess_db_puzzle.csv \
-    --out data/puzzle_boards_v2.h5 --meta data/puzzle_metadata_v2.json \
-    --merge winning=crushing,advantage
-uv run python -m src.data.components.splits --h5 data/puzzle_boards_v2.h5 --out data/splits_v2.npz
+    --out data/puzzle_boards_v2x.h5 --meta data/puzzle_metadata_v2x.json \
+    --merge winning=crushing,advantage --planes extended
+uv run python -m src.data.components.splits --h5 data/puzzle_boards_v2x.h5 --out data/splits_v2.npz
 uv run python -m src.train run_name=q2lg_s0                    # defaults: q2l_grouped, gw 0.5, weighted BCE
 uv run python -m src.eval ckpt_path=logs/train/runs/q2lg_s0/checkpoints/best.ckpt
 uv run python -m src.analyze logs/train/runs/q2lg_s0 --eval-results logs/eval/runs/<ts>/eval_results.json
@@ -256,6 +258,7 @@ What `experiment=kaggle` sets and why:
 | setting | value | reason |
 |---|---|---|
 | encoder | 192 wide, 4 blocks (3.2M params) | ~3 GPU-hours per epoch on a T4; one session covers ~3 epochs, the weekly budget ~9 |
+| input | whichever file is attached: v2x (26 planes) or v2 (18) | the kernel script sets `in_planes` to match; the first full run used base planes |
 | precision | `16-mixed` | T4 has no bf16 |
 | `max_time` | 11 h | stop before the session limit with a resumable `last.ckpt` |
 | `val_check_interval` | 0.5 | validate and checkpoint twice per epoch |
@@ -301,7 +304,7 @@ chess-puzzle-classifier/
 │   ├── data/  model/  model/net/  trainer/  callbacks/  logger/  paths/  hydra/
 │   ├── experiment/               # versioned experiment definitions (bounded_laptop, full_gpu)
 │   └── debug/                    # tiny fast runs
-├── data/                         # gitignored: raw CSV, puzzle_boards_v2.h5, puzzle_metadata_v2.json, splits_v2.npz, dev/
+├── data/                         # gitignored: raw CSV, puzzle_boards_v2x.h5 (+ v2 base planes), metadata, splits_v2.npz, dev/
 ├── experiments/                  # results notes: loss comparison, head comparison, co-occurrence analysis
 ├── logs/                         # gitignored run outputs: <task>/runs/<run_name>/
 ├── scripts/                      # fetch / decompress the Lichess dump

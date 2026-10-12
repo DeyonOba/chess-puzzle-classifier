@@ -1,7 +1,7 @@
 # num_labels and labels are injected by PuzzleLitModule from the data
 _target_: src.models.components.puzzle_classifier.PuzzleSequenceClassifier
 _partial_: true
-in_planes: 18
+in_planes: 26               # 18 base + 8 attack-map planes (preencode --planes extended); 18 for a base file
 hidden_dim: 256
 num_res_blocks: 6
 max_positions: 12
