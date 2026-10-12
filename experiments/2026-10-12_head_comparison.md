@@ -227,8 +227,8 @@ free-label sigmoid loss.
   merely un-pooling, is what delivers the gain.
 - q2l + grouped readout at group_weight 0.5 is the best configuration
   measured: +0.019 tuned macro-F1 over q2l with no subset worse than q2l
-  by more than 0.002. Recommend making `--head q2l_grouped --group-weight
-  0.5` the default. Pending approval.
+  by more than 0.002. `--head q2l_grouped --group-weight 0.5` is the
+  default (approved 2026-10-12).
 - Remaining follow-ups:
   1. Seed 1 for q2l and q2l_grouped gw=0.5 to size the noise at this budget.
   2. q2l at batch 256 on a GPU host; decoder depth 2.

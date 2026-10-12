@@ -18,6 +18,26 @@ uv run pytest
 
 Add `--limit 100000` to preencode for a dev subset (see `data/dev/`).
 
+### Full-scale runs (GPU host)
+
+The bounded experiments above used 7% of one epoch on an 8 GB Apple laptop.
+On a CUDA host run the recommended configuration at full scale, two seeds:
+
+```bash
+for SEED in 0 1; do
+  uv run python -m src.train --h5 data/puzzle_boards.h5 --splits data/splits.npz \
+      --run-name q2lg_full_s$SEED --seed $SEED --epochs 3 --batch-size 256 --amp \
+      --hidden-dim 256 --res-blocks 6 --num-workers 8
+  uv run python -m src.evaluate runs/q2lg_full_s$SEED --batch-size 256 --num-workers 8
+  uv run python -m src.analyze  runs/q2lg_full_s$SEED --batch-size 256 --num-workers 8
+done
+uv run python -m src.utils.compare_runs runs/q2lg_full_s0 runs/q2lg_full_s1
+```
+
+Defaults already select `--head q2l_grouped --group-weight 0.5 --loss
+weighted_bce --pos-weight-power 0.5`. Expect the recall on the large tactical
+labels (fork, pin, discoveredAttack) to be the first thing that moves.
+
 ## Design decisions (2026-10-11)
 
 - **Input**: the start position plus the board after every solution ply,
@@ -30,12 +50,22 @@ Add `--limit 100000` to preencode for a dev subset (see `data/dev/`).
 - **Split**: iterative multi-label stratification, 90/5/5, stored in
   `data/splits.npz` separately from the encoded boards.
 - **Model**: one ResNet encodes every position with shared weights. Default
-  head is Query2Label (`--head q2l`): 70 label queries cross-attend over the
-  per-square features of every valid position (chosen in
-  `experiments/2026-10-12_head_comparison.md`, +0.17 macro-F1 over the pooled
-  MLP head). `--head flat` is the pooled-vector baseline; `grouped` adds a
-  softmax per mutually exclusive tag group; `mlgcn` is ML-GCN. On an 8 GB
-  machine run q2l with `--batch-size 128`.
+  head is `q2l_grouped` with `--group-weight 0.5`: a Query2Label decoder (70
+  label queries + 7 "none" queries cross-attend over the per-square features
+  of every valid position) with a softmax per mutually exclusive tag group
+  from cook.py and sigmoids on the 27 free tactical labels. Chosen in
+  `experiments/2026-10-12_head_comparison.md` (tuned test macro-F1 0.580 vs
+  0.387 for the pooled MLP head). Other heads: `flat`, `flat_spatial`,
+  `grouped`, `q2l`, `mlgcn`. On an 8 GB machine run q2l heads with
+  `--batch-size 128`.
+- **Decoding**: `src/evaluate.py` reports per-class thresholds tuned on val;
+  `src/analyze.py` also reports argmax-within-group decoding, which never
+  emits two labels from one exclusive group (use that for a deployed tagger;
+  see `experiments/2026-10-12_cooccurrence_analysis.md`).
+- **Known ceiling**: crushing vs advantage is an engine centipawn boundary
+  (cook.py: cp > 600 vs > 200) that the board does not expose; end-of-line
+  material does not separate them (best material threshold = majority
+  baseline on 200k puzzles). This caps outcome-group accuracy near 75%.
 - **Loss**: BCE-with-logits with per-label `pos_weight = clip(sqrt(neg/pos), 1, 20)`
   (`--loss weighted_bce --pos-weight-power 0.5`), chosen over plain BCE, focal
   and ASL in `experiments/2026-10-11_loss_comparison.md`. Per-class decision

@@ -86,14 +86,14 @@ def main():
     p.add_argument("--runs-dir", default="runs")
     p.add_argument("--max-positions", type=int, default=None, help="1 = position-only; default = all in file")
     p.add_argument("--pooling", choices=["mean", "attention"], default="mean")
-    p.add_argument("--head", choices=["flat", "flat_spatial", "grouped", "q2l", "q2l_grouped", "mlgcn"], default="q2l",
-                   help="q2l (default) attends over per-square features; flat_spatial is the pooling control")
+    p.add_argument("--head", choices=["flat", "flat_spatial", "grouped", "q2l", "q2l_grouped", "mlgcn"], default="q2l_grouped",
+                   help="q2l_grouped (default): Query2Label decoder + softmax per exclusive tag group; flat_spatial is the pooling control")
     p.add_argument("--q2l-layers", type=int, default=1)
     p.add_argument("--q2l-heads", type=int, default=4)
     p.add_argument("--mlgcn-tau", type=float, default=0.4)
     p.add_argument("--mlgcn-p", type=float, default=0.2)
     p.add_argument("--mlgcn-dim", type=int, default=256)
-    p.add_argument("--group-weight", type=float, default=1.0, help="grouped head: weight of the group CE terms")
+    p.add_argument("--group-weight", type=float, default=0.5, help="grouped heads: weight of the group CE terms (0.5 best in the sweep)")
     p.add_argument("--hidden-dim", type=int, default=256)
     p.add_argument("--res-blocks", type=int, default=6)
     p.add_argument("--dropout", type=float, default=0.3)
