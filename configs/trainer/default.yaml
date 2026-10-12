@@ -11,3 +11,5 @@ num_sanity_val_steps: 2
 limit_train_batches: null        # null = full split; set for bounded runs (see experiment/bounded_laptop.yaml)
 limit_val_batches: null
 limit_test_batches: null
+val_check_interval: null         # e.g. 0.5 = validate twice per epoch (early stopping / checkpoint granularity)
+max_time: null                   # e.g. "00:11:00:00" to stop before a session limit; resume with ckpt_path=.../last.ckpt

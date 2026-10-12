@@ -8,6 +8,8 @@ model_checkpoint:
   save_top_k: 1
   auto_insert_metric_name: false
   verbose: false
+  every_n_epochs: null
+  save_on_train_epoch_end: null    # false = also save at mid-epoch validations
 learning_rate_monitor:
   _target_: lightning.pytorch.callbacks.LearningRateMonitor
   logging_interval: step

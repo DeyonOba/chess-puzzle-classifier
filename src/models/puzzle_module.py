@@ -77,7 +77,9 @@ class PuzzleLitModule(L.LightningModule):
         mlgcn_p: float = 0.2,
         lr: float = 1e-3,
         weight_decay: float = 1e-4,
-        scheduler: str = "onecycle",
+        scheduler: str = "onecycle",      # onecycle (needs the total step count up front) | plateau (resume-safe) | none
+        plateau_factor: float = 0.5,
+        plateau_patience: int = 2,         # validations without improvement before the LR is halved
     ):
         super().__init__()
         if labels is None:
@@ -228,4 +230,8 @@ class PuzzleLitModule(L.LightningModule):
         if self.hparams.scheduler == "onecycle":
             sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=self.hparams.lr, total_steps=self.trainer.estimated_stepping_batches)
             return {"optimizer": opt, "lr_scheduler": {"scheduler": sched, "interval": "step"}}
+        if self.hparams.scheduler == "plateau":
+            sched = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, mode="max", factor=self.hparams.plateau_factor,
+                                                               patience=self.hparams.plateau_patience)
+            return {"optimizer": opt, "lr_scheduler": {"scheduler": sched, "monitor": "val/tuned_macro_f1", "interval": "epoch"}}
         return opt

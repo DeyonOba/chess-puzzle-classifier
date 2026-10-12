@@ -159,6 +159,40 @@ Config groups: `data/{puzzle,dev}`, `model/net/{q2l_grouped,q2l,flat,flat_spatia
 `preencode --limit 100000` builds the dev subset in `data/dev/`. On an 8 GB
 laptop the q2l heads need `data.batch_size=128` (the bounded experiment sets it).
 
+## Full-data training on Kaggle (free GPU, 30 h / week, 12 h / session)
+
+1. Build the data locally (`make data`) and upload `puzzle_boards_v2.h5`,
+   `puzzle_metadata_v2.json` and `splits_v2.npz` as a Kaggle dataset (~1.4 GB).
+2. In a GPU notebook: clone the repo, `pip install -e .` (or `uv sync`), then
+
+```bash
+python -m src.train experiment=kaggle run_name=q2lg_full \
+    paths.data_dir=/kaggle/input/<dataset> paths.log_dir=/kaggle/working/logs
+```
+
+3. Save `/kaggle/working/logs` as the notebook output. Next session, resume:
+
+```bash
+python -m src.train experiment=kaggle run_name=q2lg_full \
+    ckpt_path=/kaggle/working/logs/train/runs/q2lg_full/checkpoints/last.ckpt \
+    paths.data_dir=... paths.log_dir=...
+```
+
+What `experiment=kaggle` sets and why:
+
+| setting | value | reason |
+|---|---|---|
+| encoder | 192 wide, 4 blocks (3.2M params) | ~3 GPU-hours per epoch on a T4; one session covers ~3 epochs, the weekly budget ~9 |
+| precision | `16-mixed` | T4 has no bf16 |
+| `max_time` | 11 h | stop before the session limit with a resumable `last.ckpt` |
+| `val_check_interval` | 0.5 | validate and checkpoint twice per epoch |
+| early stopping | patience 4 validations, min_delta 0.001 on val tuned macro-F1 | two epochs of no progress before stopping |
+| scheduler | `plateau` (halve LR after 2 flat validations) | OneCycle bakes the total step count into its state and is not resumable across sessions or early stops |
+
+Resume restores optimizer, scheduler, epoch, early-stopping state and the
+tuned thresholds. Then `python -m src.eval ckpt_path=.../best.ckpt` and
+`python -m src.analyze` as usual.
+
 ## Serving
 
 ```bash

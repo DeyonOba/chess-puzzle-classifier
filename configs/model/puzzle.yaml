@@ -16,4 +16,6 @@ mlgcn_tau: 0.4
 mlgcn_p: 0.2
 lr: 1.0e-3
 weight_decay: 1.0e-4
-scheduler: onecycle
+scheduler: onecycle         # onecycle | plateau (resume-safe, used by experiment=kaggle) | none
+plateau_factor: 0.5
+plateau_patience: 2

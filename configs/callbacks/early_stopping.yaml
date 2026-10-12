@@ -1,0 +1,10 @@
+# forgiving early stopping on the model-selection metric; checked every validation (see val_check_interval)
+defaults:
+  - default
+early_stopping:
+  _target_: lightning.pytorch.callbacks.EarlyStopping
+  monitor: val/tuned_macro_f1
+  mode: max
+  patience: 4          # validations without >= min_delta improvement (2 epochs at val_check_interval 0.5)
+  min_delta: 0.001
+  verbose: true

@@ -1,0 +1,36 @@
+# @package _global_
+# Full-data training on a Kaggle free GPU (T4 / P100, 16 GB, 30 GPU-hours per week, 12 h per session).
+#
+#   python -m src.train experiment=kaggle run_name=q2lg_full \
+#       paths.data_dir=/kaggle/input/<your-dataset> paths.log_dir=/kaggle/working/logs
+#   # next session, resume (optimizer, scheduler, epoch, thresholds all restored):
+#   python -m src.train experiment=kaggle run_name=q2lg_full ckpt_path=/kaggle/working/logs/train/runs/q2lg_full/checkpoints/last.ckpt \
+#       paths.data_dir=... paths.log_dir=...
+#
+# Budget guide (q2l_grouped, 6M puzzles, mean 4.5 positions): the 256-wide 6-block encoder is roughly
+# 5-6 GPU-hours per epoch on a T4 at fp16; the 128-wide 3-block encoder used in experiments/ is ~1.5 h.
+# Default here: 192 wide, 4 blocks (~3 h/epoch), so one 11 h session covers ~3 epochs and the 30 h week
+# covers ~8-9 epochs; early stopping usually ends it before that.
+defaults:
+  - override /trainer: gpu
+  - override /callbacks: early_stopping
+tags: ["full", "kaggle"]
+data:
+  batch_size: 256
+  num_workers: 2            # Kaggle gives 4 vCPUs; the loader needs ~1 core per 25k puzzles/s
+model:
+  net:
+    hidden_dim: 192
+    num_res_blocks: 4
+  lr: 1.0e-3
+  scheduler: plateau        # OneCycle bakes total steps into its state: not resumable across sessions / early stops
+trainer:
+  precision: 16-mixed       # T4 has no bf16; fp16 autocast with grad scaling
+  max_epochs: 10
+  max_time: "00:11:00:00"   # stop before the 12 h session limit; last.ckpt is written every validation
+  val_check_interval: 0.5   # validate twice per epoch: finer early stopping and checkpointing on 2-3 h epochs
+  log_every_n_steps: 100
+callbacks:
+  model_checkpoint:
+    every_n_epochs: null
+    save_on_train_epoch_end: false   # save at each validation, not only at epoch end
