@@ -136,13 +136,64 @@ per-square, per-position tokens is the mechanism. Attention over the
 *positions* of the pooled vectors (the existing `--pooling attention`) is
 not the same thing and was never a candidate explanation.
 
+## Query2Label + grouped softmax readout (added 2026-10-12, commit 0ab6f4a)
+
+`--head q2l_grouped`: the same decoder with 7 extra "none" queries, one per
+exclusive group; group logits go through the grouped cross-entropy, the 27
+free labels through the sigmoid loss. Query2Label's protocol (batch 128 x
+3000, seed 0).
+
+| head | params | tuned micro-F1 | tuned macro-F1 | tuned macro-P | tuned macro-R | tuned exact | untuned macro-F1 | untuned micro-F1 | untuned exact |
+|---|---|---|---|---|---|---|---|---|---|
+| grouped (pooled) | 0.94M | 0.704 | 0.421 | 0.394 | 0.488 | 0.131 | 0.364 | 0.778 | 0.223 |
+| q2l | 1.13M | **0.801** | 0.561 | 0.533 | 0.615 | 0.219 | 0.515 | **0.814** | 0.241 |
+| q2l_grouped | 1.14M | 0.799 | **0.573** | **0.544** | **0.628** | **0.235** | **0.540** | 0.813 | **0.274** |
+
+| subset | grouped (pooled) | q2l | q2l_grouped |
+|---|---|---|---|
+| group outcome (4) | 0.570 | 0.582 | 0.596 |
+| group length (4) | 0.996 | 0.996 | 0.996 |
+| group phase (3) | 0.887 | 0.930 | 0.929 |
+| group mateIn (5) | 0.684 | 0.764 | **0.850** |
+| group matePattern (19) | 0.293 | 0.499 | **0.583** |
+| group endgameType (6) | 0.892 | 0.956 | **0.971** |
+| group attackSide (2) | 0.560 | 0.648 | **0.699** |
+| free labels (27) | 0.189 | **0.366** | 0.312 |
+| band common | 0.704 | **0.781** | 0.774 |
+| band mid | 0.438 | **0.589** | 0.569 |
+| band rare | 0.189 | 0.366 | **0.426** |
+| dead labels | 8 | **5** | 6 |
+
+Largest changes, q2l_grouped vs q2l: mateIn5 +0.35, bodenMate +0.26,
+arabianMate +0.18, vukovicMate +0.14, morphysMate +0.14; enPassant -0.29,
+hangingPiece -0.17, exposedKing -0.16, swallowstailMate -0.11, xRayAttack -0.10.
+
+### Reading
+
+- Net +0.012 tuned macro-F1 and +0.025 untuned, with the best untuned exact
+  match of any run (0.274). The grouped readout is the better calibrated
+  one at 0.5, as it was on the pooled head.
+- The gain is where the structure lives: mateIn +0.09, matePattern +0.08,
+  attackSide +0.05, rare band +0.06. The mateIn5 jump (+0.35) is the
+  softmax forcing exactly one depth per mate.
+- The cost is the same as before but larger: free labels drop 0.05, led by
+  enPassant, hangingPiece and exposedKing. The 7 group cross-entropy terms
+  at group_weight 1 pull the shared decoder and encoder toward the groups.
+  `--group-weight 0.5` is the obvious next knob and has not been tried.
+- At one seed, +0.012 is inside the noise seen in the loss comparison
+  (spread up to 0.008), so the headline is "no worse, better calibrated,
+  gains and losses on different label sets", not a clear win.
+
 ## Decision
 
 - Query2Label is the default head (commit afe0643, approved 2026-10-12).
 - The pooling control is done (above): the decoder's cross-attention, not
   merely un-pooling, is what delivers the gain.
+- q2l + grouped readout tried (above): +0.012 macro-F1, better calibration,
+  free labels regress. Default stays q2l pending a group-weight sweep or a
+  second seed.
 - Remaining follow-ups:
-  1. q2l + grouped softmax readout (the two gains are on different axes).
+  1. q2l_grouped with --group-weight 0.5 (and seed 1 for both heads).
   2. q2l at batch 256 / seed 1 on a GPU host; q2l decoder depth 2.
   3. Co-occurrence confusion matrix and rank evaluation on the q2l model.
 
