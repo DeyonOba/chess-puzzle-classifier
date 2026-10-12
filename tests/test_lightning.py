@@ -49,3 +49,19 @@ def test_debug_experiment_fast_run(tmp_path):
     from src.models.puzzle_module import PuzzleLitModule
     m2 = PuzzleLitModule.load_from_checkpoint(ckpt, map_location="cpu")
     assert m2.labels == model.labels and torch.equal(m2.thresholds, model.thresholds.cpu())
+
+
+@pytest.mark.skipif(not DEV_H5.exists(), reason="dev HDF5 not built")
+@pytest.mark.skipif(not (torch.backends.mps.is_available() or torch.cuda.is_available()), reason="no accelerator")
+def test_validation_metrics_on_accelerator(tmp_path):
+    """Regression: torchmetrics states are moved to the accelerator by Lightning; feeding CPU tensors crashed on MPS."""
+    import lightning as L
+    cfg = _cfg(["debug=default", f"paths.output_dir={tmp_path}", "~callbacks", "~logger"])
+    datamodule = instantiate(cfg.data)
+    model = instantiate(cfg.model)
+    trainer = L.Trainer(accelerator="auto", max_epochs=1, limit_train_batches=2, limit_val_batches=2, limit_test_batches=2,
+                        logger=False, enable_checkpointing=False, enable_progress_bar=False, num_sanity_val_steps=0,
+                        use_distributed_sampler=False, default_root_dir=tmp_path)
+    trainer.fit(model, datamodule=datamodule)
+    trainer.test(model, datamodule=datamodule)
+    assert model.test_results is not None and trainer.strategy.root_device.type != "cpu"

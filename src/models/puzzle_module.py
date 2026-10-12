@@ -171,8 +171,10 @@ class PuzzleLitModule(L.LightningModule):
         return probs, targets
 
     def _fixed_metrics(self, probs: np.ndarray, targets: np.ndarray) -> dict:
-        logits = torch.logit(torch.from_numpy(probs).clamp(1e-7, 1 - 1e-7))
-        t = torch.from_numpy(targets)
+        # the torchmetrics states live on the module's device (Lightning moves them), so feed them there
+        device = self.device
+        logits = torch.logit(torch.from_numpy(probs).clamp(1e-7, 1 - 1e-7)).to(device)
+        t = torch.from_numpy(targets).to(device)
         self.metrics.reset(); self.metrics.update(logits, t)
         out = self.metrics.compute()
         out["loss"] = self.val_loss_fn(logits, t.float()).item()
