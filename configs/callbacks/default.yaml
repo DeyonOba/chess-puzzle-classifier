@@ -1,0 +1,18 @@
+model_checkpoint:
+  _target_: lightning.pytorch.callbacks.ModelCheckpoint
+  dirpath: ${paths.output_dir}/checkpoints
+  filename: best
+  monitor: val/tuned_macro_f1     # model selection on val macro-F1 with in-sample tuned thresholds
+  mode: max
+  save_last: true
+  save_top_k: 1
+  auto_insert_metric_name: false
+  verbose: false
+learning_rate_monitor:
+  _target_: lightning.pytorch.callbacks.LearningRateMonitor
+  logging_interval: step
+model_summary:
+  _target_: lightning.pytorch.callbacks.RichModelSummary
+  max_depth: 2
+progress_bar:
+  _target_: lightning.pytorch.callbacks.RichProgressBar

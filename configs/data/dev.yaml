@@ -1,0 +1,5 @@
+# 100k-row subset built with: python -m src.data.preencode --limit 100000 ... (see data/dev/)
+defaults:
+  - puzzle
+h5_path: ${paths.data_dir}/dev/puzzle_boards_100k.h5
+splits_path: ${paths.data_dir}/dev/splits_100k.npz

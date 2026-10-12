@@ -1,6 +1,6 @@
-"""Compare training runs side by side.
+"""Compare runs side by side (test split, chosen decoding).
 
-    python -m src.utils.compare_runs runs/losscmp_line_* [--top 8]
+    python -m src.utils.compare_runs logs/train/runs/A logs/train/runs/B [--decoding argmax_groups] [--top 8]
 
 Prints the final-epoch validation metrics of each run, then the labels whose
 per-class F1 moved most against the first run given (the reference), grouped
@@ -14,11 +14,16 @@ import json
 import pathlib
 
 
-def load_run(run_dir: pathlib.Path) -> dict:
-    cfg = json.loads((run_dir / "config.json").read_text())
-    hist = [json.loads(l) for l in (run_dir / "history.jsonl").read_text().splitlines() if l.strip()]
-    per_class = json.loads((run_dir / "per_class_f1.json").read_text()) if (run_dir / "per_class_f1.json").exists() else {}
-    return {"name": run_dir.name, "config": cfg, "last": hist[-1] if hist else {}, "per_class": per_class}
+def load_run(run_dir: pathlib.Path, decoding: str = "val_tuned") -> dict:
+    """Reads a Lightning/Hydra run dir: test_results.json (from src.train) or eval_results.json (from src.eval)."""
+    f = run_dir / "test_results.json" if (run_dir / "test_results.json").exists() else run_dir / "eval_results.json"
+    res = json.loads(f.read_text())
+    key = {"val_tuned": "f1_tuned", "fixed_0.5": "f1_fixed", "argmax_groups": "f1_argmax"}[decoding]
+    per_class = {l: v.get(key, 0.0) for l, v in res["per_class"].items()}
+    last = {f"val_{k}": v for k, v in res.get(decoding, {}).items()}
+    last["val_macro_auprc"] = res.get("ranking", {}).get("macro_auprc", float("nan"))
+    last["val_loss"] = res.get("ranking", {}).get("loss", float("nan"))
+    return {"name": run_dir.name, "last": last, "per_class": per_class}
 
 
 def main():
@@ -26,10 +31,11 @@ def main():
     p.add_argument("runs", nargs="+")
     p.add_argument("--top", type=int, default=8)
     p.add_argument("--meta", default="data/puzzle_metadata.json", help="for label counts (frequency bands)")
+    p.add_argument("--decoding", choices=["val_tuned", "fixed_0.5", "argmax_groups"], default="val_tuned")
     args = p.parse_args()
-    runs = [load_run(pathlib.Path(r)) for r in args.runs]
+    runs = [load_run(pathlib.Path(r), args.decoding) for r in args.runs]
 
-    cols = ["val_micro_f1", "val_macro_f1", "val_macro_precision", "val_macro_recall", "val_macro_auprc", "val_exact_match", "val_loss", "train_loss"]
+    cols = ["val_micro_f1", "val_macro_f1", "val_macro_precision", "val_macro_recall", "val_macro_auprc", "val_exact_match"]
     print(f"{'run':28s}" + "".join(f"{c.replace('val_', ''):>12s}" for c in cols))
     for r in runs:
         print(f"{r['name']:28s}" + "".join(f"{r['last'].get(c, float('nan')):12.4f}" for c in cols))

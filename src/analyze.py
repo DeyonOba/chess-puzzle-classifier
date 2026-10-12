@@ -1,9 +1,12 @@
 """Co-occurrence confusion and ranking analysis of a checkpoint on the test split.
 
-    python -m src.analyze runs/NAME [--test-batches 780] [--batch-size 128]
+    python -m src.analyze logs/train/runs/NAME [--eval-results logs/eval/runs/X/eval_results.json]
+                          [--test-batches 780] [--batch-size 128]
 
-Uses the per-class thresholds in runs/NAME/eval.json (tuned on val by
-src.evaluate). Writes runs/NAME/analysis.json and runs/NAME/analysis.md with:
+Loads checkpoints/best.ckpt from the run directory. Per-class thresholds come
+from --eval-results (val-tuned by src.eval) if given, else from the checkpoint
+(tuned in-sample on the validation subset seen during training). Writes
+analysis.json and analysis.md into the run directory with:
 
 1. Confusion matrix inside each mutually exclusive tag group (argmax over the
    group's probabilities vs 'none'), where confusion is well defined.
@@ -22,11 +25,11 @@ import json
 import pathlib
 
 import numpy as np
+import torch
 
 from src.data.components.splits import load_splits, make_loader
 from src.data.components.dataset import PuzzleSequenceDataset
-from src.evaluate import load_model
-from src.train import pick_device, predict
+from src.models.puzzle_module import PuzzleLitModule
 from src.utils.label_groups import EXCLUSIVE_GROUPS
 from src.utils.label_groups import LabelLayout
 from src.utils.ranking import per_label_average_precision, ranking_report
@@ -111,10 +114,33 @@ def to_markdown(result: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def pick_device(name: str) -> torch.device:
+    if name != "auto":
+        return torch.device(name)
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
+
+
+@torch.no_grad()
+def predict(model: PuzzleLitModule, loader, device, limit_batches=None):
+    model.eval()
+    probs, targets = [], []
+    for i, (boards, lengths, t) in enumerate(loader):
+        if limit_batches is not None and i >= limit_batches:
+            break
+        probs.append(model.probs(model(boards.to(device), lengths.to(device)).float()).cpu().numpy())
+        targets.append(t.numpy().astype(np.uint8))
+    return np.concatenate(probs), np.concatenate(targets)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("run_dir")
-    p.add_argument("--checkpoint", default="best.pt")
+    p.add_argument("run_dir", help="logs/train/runs/NAME (contains checkpoints/best.ckpt)")
+    p.add_argument("--checkpoint", default="checkpoints/best.ckpt")
+    p.add_argument("--eval-results", default=None, help="eval_results.json from src.eval for val-tuned thresholds")
     p.add_argument("--h5", default="data/puzzle_boards.h5")
     p.add_argument("--splits", default="data/splits.npz")
     p.add_argument("--batch-size", type=int, default=128)
@@ -126,12 +152,15 @@ def main():
 
     run_dir = pathlib.Path(args.run_dir)
     device = pick_device(args.device)
-    model, cfg, _ = load_model(run_dir, device, args.checkpoint)
-    labels = cfg["labels"]
-    ev = json.loads((run_dir / "eval.json").read_text())
-    thresholds = np.array([ev["per_class"][l]["threshold"] for l in labels], dtype=np.float32)
+    model = PuzzleLitModule.load_from_checkpoint(run_dir / args.checkpoint, map_location="cpu").to(device)
+    labels = model.labels
+    if args.eval_results:
+        ev = json.loads(pathlib.Path(args.eval_results).read_text())
+        thresholds = np.array([ev["per_class"][l]["threshold"] for l in labels], dtype=np.float32)
+    else:
+        thresholds = model.thresholds.detach().cpu().numpy()
 
-    dataset = PuzzleSequenceDataset(args.h5, cfg["T"])
+    dataset = PuzzleSequenceDataset(args.h5, model.net.ply_embedding.num_embeddings if model.net.ply_embedding is not None else None)
     splits = load_splits(args.splits)
     cache = run_dir / "test_probs.npz"
     if args.reuse_probs and cache.exists():

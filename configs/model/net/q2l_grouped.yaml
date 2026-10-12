@@ -1,0 +1,13 @@
+# num_labels and labels are injected by PuzzleLitModule from the data
+_target_: src.models.components.puzzle_classifier.PuzzleSequenceClassifier
+_partial_: true
+in_planes: 18
+hidden_dim: 256
+num_res_blocks: 6
+max_positions: 12
+pooling: mean
+dropout: 0.3
+head: q2l_grouped
+head_kwargs:
+  num_layers: 1
+  num_heads: 4

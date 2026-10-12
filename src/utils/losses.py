@@ -85,12 +85,15 @@ def build_loss(
     asl_gamma_neg: float = 4.0,
     asl_gamma_pos: float = 1.0,
     asl_clip: float = 0.05,
+    num_labels: int | None = None,
 ) -> nn.Module:
     if name == "bce":
         return nn.BCEWithLogitsLoss()
     if name == "weighted_bce":
         if train_targets is None:
-            raise ValueError("weighted_bce needs train_targets to compute pos_weight")
+            if num_labels is None:
+                raise ValueError("weighted_bce needs train_targets or num_labels (pos_weight filled later)")
+            return nn.BCEWithLogitsLoss(pos_weight=torch.ones(num_labels))
         return nn.BCEWithLogitsLoss(pos_weight=compute_pos_weight(train_targets, pos_weight_cap, pos_weight_power))
     if name == "focal":
         return SigmoidFocalLoss(focal_gamma, focal_alpha)
@@ -113,16 +116,20 @@ class GroupedLoss(nn.Module):
         self.layout = head.layout
         self.free_loss = free_loss
         self.group_weight = group_weight
-        self.class_weights = nn.ParameterList()
-        for _, idx in self.layout.groups:
-            k = len(idx) + 1
-            if train_targets is None:
-                w = torch.ones(k)
-            else:
-                sub = train_targets[:, idx]
-                counts = np.append(sub.sum(0), (sub.sum(1) == 0).sum()).astype(np.float64)
-                w = torch.tensor(np.clip((len(sub) / np.maximum(counts, 1)) ** power, 1.0, cap), dtype=torch.float32)
-            self.class_weights.append(nn.Parameter(w, requires_grad=False))
+        self.cap, self.power = cap, power
+        self.class_weights = nn.ParameterList(
+            nn.Parameter(torch.ones(len(idx) + 1), requires_grad=False) for _, idx in self.layout.groups
+        )
+        if train_targets is not None:
+            self.set_class_weights(train_targets)
+
+    @torch.no_grad()
+    def set_class_weights(self, train_targets: np.ndarray):
+        """Fill the per-group class weights from training targets (also usable after construction)."""
+        for (_, idx), w in zip(self.layout.groups, self.class_weights):
+            sub = train_targets[:, idx]
+            counts = np.append(sub.sum(0), (sub.sum(1) == 0).sum()).astype(np.float64)
+            w.copy_(torch.tensor(np.clip((len(sub) / np.maximum(counts, 1)) ** self.power, 1.0, self.cap), dtype=torch.float32))
 
     def forward(self, raw: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
         free = self.layout.free

@@ -1,0 +1,8 @@
+_target_: src.data.puzzle_datamodule.PuzzleDataModule
+h5_path: ${paths.data_dir}/puzzle_boards.h5
+splits_path: ${paths.data_dir}/splits.npz
+max_positions: null        # null = all positions in the file (T=12); 1 = position-only baseline
+batch_size: 256
+num_workers: 4
+seed: ${seed}
+drop_last: true

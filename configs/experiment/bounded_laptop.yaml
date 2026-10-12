@@ -1,0 +1,21 @@
+# @package _global_
+# The bounded protocol used for every comparison in experiments/*.md (2026-10-11/12):
+# 384k training puzzles (batch 128 x 3000), thresholds tuned on 100k val, scored on 100k test,
+# 128-wide 3-block encoder. Fits an 8 GB Apple laptop with the q2l heads.
+#   python -m src.train experiment=bounded_laptop run_name=q2lg_gw05_s0
+#   python -m src.train experiment=bounded_laptop model.net.head=q2l model.group_weight=1 run_name=...
+defaults:
+  - override /trainer: mps
+tags: ["bounded", "laptop"]
+data:
+  batch_size: 128
+  num_workers: 2
+model:
+  net:
+    hidden_dim: 128
+    num_res_blocks: 3
+trainer:
+  max_epochs: 1
+  limit_train_batches: 3000
+  limit_val_batches: 780
+  limit_test_batches: 780

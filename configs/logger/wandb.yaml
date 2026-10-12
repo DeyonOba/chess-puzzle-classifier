@@ -1,0 +1,7 @@
+# requires `uv add wandb`
+wandb:
+  _target_: lightning.pytorch.loggers.WandbLogger
+  save_dir: ${paths.output_dir}
+  project: chess-puzzle-classifier
+  name: ${run_name}
+  tags: ${tags}

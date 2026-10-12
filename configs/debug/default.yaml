@@ -1,0 +1,26 @@
+# @package _global_
+# python -m src.train debug=default   -> tiny model, dev data, 5 batches, cpu
+defaults:
+  - override /data: dev
+  - override /trainer: cpu
+  - override /logger: csv
+task_name: debug
+tags: ["debug"]
+data:
+  batch_size: 32
+  num_workers: 0
+model:
+  labels_path: ${paths.data_dir}/dev/puzzle_metadata_100k.json
+  net:
+    hidden_dim: 32
+    num_res_blocks: 1
+trainer:
+  max_epochs: 1
+  limit_train_batches: 5
+  limit_val_batches: 3
+  limit_test_batches: 3
+  log_every_n_steps: 1
+  num_sanity_val_steps: 0
+callbacks:
+  model_summary: null
+  progress_bar: null

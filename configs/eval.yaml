@@ -1,0 +1,13 @@
+# python -m src.eval ckpt_path=logs/train/runs/NAME/checkpoints/best.ckpt
+# re-tunes per-class thresholds on the full val split, then scores test under both decodings
+defaults:
+  - _self_
+  - data: puzzle
+  - trainer: default
+  - paths: default
+  - hydra: default
+
+task_name: eval
+run_name: ${now:%Y-%m-%d_%H-%M-%S}
+seed: 0
+ckpt_path: ???

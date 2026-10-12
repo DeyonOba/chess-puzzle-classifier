@@ -1,0 +1,13 @@
+_target_: lightning.pytorch.Trainer
+default_root_dir: ${paths.output_dir}
+accelerator: auto
+devices: 1
+max_epochs: 3
+precision: 32
+log_every_n_steps: 50
+use_distributed_sampler: false   # keep ContiguousBatchSampler; DDP needs a distributed variant
+deterministic: false
+num_sanity_val_steps: 2
+limit_train_batches: null        # null = full split; set for bounded runs (see experiment/bounded_laptop.yaml)
+limit_val_batches: null
+limit_test_batches: null

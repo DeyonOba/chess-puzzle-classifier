@@ -14,3 +14,6 @@ wheels/
 
 # Training outputs
 runs/
+
+# Hydra / Lightning outputs
+logs/

@@ -1,0 +1,19 @@
+_target_: src.models.puzzle_module.PuzzleLitModule
+defaults:
+  - net: q2l_grouped
+labels: null                # explicit label list (overrides labels_path)
+labels_path: ${paths.data_dir}/puzzle_metadata.json   # label list; stored in the checkpoint afterwards
+loss: weighted_bce          # bce | weighted_bce | focal | asl
+pos_weight_cap: 20.0
+pos_weight_power: 0.5       # sqrt(neg/pos); 1.0 = linear
+focal_gamma: 2.0
+focal_alpha: null
+asl_gamma_neg: 4.0
+asl_gamma_pos: 1.0
+asl_clip: 0.05
+group_weight: 0.5           # grouped heads: weight of the per-group cross-entropy terms
+mlgcn_tau: 0.4
+mlgcn_p: 0.2
+lr: 1.0e-3
+weight_decay: 1.0e-4
+scheduler: onecycle

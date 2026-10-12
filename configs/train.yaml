@@ -1,0 +1,20 @@
+# python -m src.train [experiment=...] [data=dev] [trainer=gpu] [model.net.hidden_dim=128] ...
+defaults:
+  - _self_
+  - data: puzzle
+  - model: puzzle
+  - callbacks: default
+  - logger: csv
+  - trainer: default
+  - paths: default
+  - hydra: default
+  - experiment: null      # configs/experiment/*.yaml: a complete, versioned experiment definition
+  - debug: null           # configs/debug/*.yaml: tiny fast runs
+
+task_name: train
+run_name: ${now:%Y-%m-%d_%H-%M-%S}
+tags: ["dev"]
+seed: 0
+train: true
+test: true              # after fit: test the best checkpoint, write test_results.json
+ckpt_path: null         # resume from this checkpoint

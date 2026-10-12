@@ -1,0 +1,12 @@
+# @package _global_
+# Full-scale run on a CUDA host: full epochs, full val/test, 256-wide 6-block encoder, bf16.
+#   python -m src.train experiment=full_gpu seed=0 run_name=q2lg_full_s0
+#   python -m src.train experiment=full_gpu seed=1 run_name=q2lg_full_s1
+defaults:
+  - override /trainer: gpu
+tags: ["full", "gpu"]
+data:
+  batch_size: 256
+  num_workers: 8
+trainer:
+  max_epochs: 3

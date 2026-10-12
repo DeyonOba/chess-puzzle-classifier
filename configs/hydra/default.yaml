@@ -1,0 +1,10 @@
+# one output directory per run; the resolved config and all artefacts go there
+run:
+  dir: ${paths.log_dir}/${task_name}/runs/${run_name}
+sweep:
+  dir: ${paths.log_dir}/${task_name}/multiruns/${now:%Y-%m-%d_%H-%M-%S}
+  subdir: ${hydra.job.num}
+job_logging:
+  handlers:
+    file:
+      filename: ${hydra.runtime.output_dir}/${task_name}.log
