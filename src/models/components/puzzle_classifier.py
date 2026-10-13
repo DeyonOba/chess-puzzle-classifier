@@ -96,15 +96,24 @@ class PuzzleSequenceClassifier(nn.Module):
         return getattr(self.head, "layout", None) is not None
 
     def forward(self, boards: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
+        return self.forward_with_embedding(boards, lengths)[0]
+
+    def forward_with_embedding(self, boards: torch.Tensor, lengths: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Raw head output plus a (B, hidden_dim) puzzle embedding: the encoder's feature map
+        averaged over the squares of every valid position. The same vector for every head, so
+        it can index puzzles for similarity search independently of the label vocabulary."""
         B, T = boards.shape[:2]
         mask = torch.arange(T, device=boards.device)[None, :] < lengths[:, None]  # (B, T)
         flat_mask = mask.reshape(-1)
+        denom = lengths.clamp(min=1)[:, None]
 
         if self.head_type.startswith("q2l"):  # needs the spatial map of every valid position
             valid_spatial = self.encoder.spatial(boards.flatten(0, 1)[flat_mask])  # (sum(lengths), D, 8, 8)
             spatial = valid_spatial.new_zeros(B * T, *valid_spatial.shape[1:])
             spatial[flat_mask] = valid_spatial
-            return self.head(spatial.view(B, T, *valid_spatial.shape[1:]), mask)
+            spatial = spatial.view(B, T, *valid_spatial.shape[1:])
+            embedding = spatial.mean(dim=(3, 4)).sum(1) / denom.to(spatial.dtype)
+            return self.head(spatial, mask), embedding
 
         if self.head_type == "flat_spatial":
             valid_feats = self.spatial_proj(self.encoder.spatial(boards.flatten(0, 1)[flat_mask]).flatten(1))
@@ -112,11 +121,13 @@ class PuzzleSequenceClassifier(nn.Module):
             valid_feats = self.encoder(boards.flatten(0, 1)[flat_mask])  # (sum(lengths), D)
         feats = valid_feats.new_zeros(B * T, valid_feats.shape[1])
         feats[flat_mask] = valid_feats
-        feats = feats.view(B, T, -1) + self.ply_embedding.weight[:T][None]
+        feats = feats.view(B, T, -1)
+        embedding = (feats * mask[..., None]).sum(1) / denom.to(feats.dtype)
+        feats = feats + self.ply_embedding.weight[:T][None]
 
         if self.pooling == "mean":
-            pooled = (feats * mask[..., None]).sum(1) / lengths.clamp(min=1)[:, None].to(feats.dtype)
+            pooled = (feats * mask[..., None]).sum(1) / denom.to(feats.dtype)
         else:
             scores = self.attn(feats).squeeze(-1).masked_fill(~mask, float("-inf"))
             pooled = (torch.softmax(scores, dim=1)[..., None] * feats).sum(1)
-        return self.head(pooled)
+        return self.head(pooled), embedding

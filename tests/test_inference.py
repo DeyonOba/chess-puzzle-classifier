@@ -75,3 +75,63 @@ def test_fastapi_app(ckpt, monkeypatch):
         assert r.status_code == 200 and "crushing" in r.json()["tags"] and r.json()["positions"] == 6
         assert client.post("/predict", json={"fen": "not a fen"}).status_code == 422
         assert client.post("/predict", json={"fen": MATE_FEN, "moves": ["a1a7", "zz"]}).status_code == 422
+
+
+def test_predict_batch_matches_single_predictions_and_embeds(ckpt):
+    from src.inference import PredictItem, Predictor
+    p = Predictor(ckpt, device="cpu")
+    items = [PredictItem(FEN_CSV, LINE, setup_move=SETUP), PredictItem(MATE_FEN, ["a1a8"]), PredictItem(MATE_FEN)]
+    batch = p.predict_batch(items, include_embedding=True)
+    assert [b.model for b in batch] == ["line", "line", "line"]        # no position checkpoint: the line model answers all
+    assert [b.positions for b in batch] == [6, 2, 1]
+    for item, b in zip(items, batch):
+        single = p.predict(item.fen, item.moves, setup_move=item.setup_move)
+        assert b.tags == single.tags and b.rule_tags == single.rule_tags
+        assert all(abs(b.probabilities[l] - single.probabilities[l]) < 1e-4 for l in p.labels)
+        assert len(b.embedding) == p.embedding_dim and all(isinstance(v, float) for v in b.embedding)
+    assert p.predict(MATE_FEN).embedding is None
+    assert batch[0].embedding != batch[1].embedding
+    with pytest.raises(ValueError, match="decoding"):
+        p.predict_batch(items, decoding="nope")
+
+
+def test_forward_with_embedding_is_masked_mean_over_valid_positions(ckpt):
+    from src.inference import PredictItem, Predictor
+    p = Predictor(ckpt, device="cpu")
+    one = p.predict_batch([PredictItem(MATE_FEN)], include_embedding=True)[0]
+    two = p.predict_batch([PredictItem(MATE_FEN, ["a1a8"])], include_embedding=True)[0]
+    raw, emb = p.model.net.forward_with_embedding(*p.encode(MATE_FEN, None)[:2])
+    assert raw.shape == (1, len(p.labels) + p.layout.num_groups) and emb.shape == (1, p.embedding_dim)
+    assert torch.allclose(emb[0], torch.tensor(one.embedding), atol=1e-4)
+    assert one.embedding != two.embedding
+
+
+def test_predict_item_check_reports_bad_input():
+    from src.inference import PredictItem
+    assert PredictItem(MATE_FEN, ["a1a8"]).check() is None
+    assert "zz" in (PredictItem(MATE_FEN, ["a1a7", "zz"]).check() or "")
+    assert PredictItem("not a fen").check() is not None
+
+
+def test_fastapi_batch_endpoint(ckpt, monkeypatch):
+    from fastapi.testclient import TestClient
+    import src.app as appmod
+    monkeypatch.setenv("CPC_CKPT", str(ckpt)); monkeypatch.setenv("CPC_DEVICE", "cpu")
+    with TestClient(appmod.app) as client:
+        health = client.get("/health").json()
+        assert health["embedding_dim"] > 0 and health["checkpoint"] and health["max_batch"] == appmod.MAX_BATCH
+        r = client.post("/predict_batch", json={"items": [
+            {"fen": FEN_CSV, "setup_move": SETUP, "moves": LINE, "cp": 850},
+            {"fen": MATE_FEN, "moves": ["a1a7", "zz"]},
+            {"fen": MATE_FEN, "moves": ["a1a8"]},
+        ], "include_embedding": True})
+        assert r.status_code == 200
+        body = r.json()
+        assert body["checkpoint"] == health["checkpoint"] and len(body["results"]) == 3
+        first, bad, mate = body["results"]
+        assert "crushing" in first["prediction"]["tags"] and len(first["prediction"]["embedding"]) == body["embedding_dim"]
+        assert bad["prediction"] is None and "zz" in bad["error"]
+        assert "mateIn1" in mate["prediction"]["tags"]
+        single = client.post("/predict", json={"fen": FEN_CSV, "setup_move": SETUP, "moves": LINE, "include_embedding": True}).json()
+        assert len(single["embedding"]) == body["embedding_dim"]
+        assert client.post("/predict_batch", json={"items": []}).status_code == 422
