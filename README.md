@@ -299,28 +299,60 @@ tuned thresholds. Then `python -m src.eval ckpt_path=.../best.ckpt` and
 ## Serving
 
 ```bash
-CPC_CKPT=logs/train/runs/NAME/checkpoints/best.ckpt \
-CPC_POSITION_CKPT=logs/train/runs/NAME_pos/checkpoints/best.ckpt \
+CPC_CKPT=logs/train/runs/q2lg_full_base_kaggle/checkpoints/best.ckpt \
+CPC_POSITION_CKPT=logs/train/runs/v2_q2lg_gw05_pos_s0/checkpoints/best.ckpt \
 uv run uvicorn src.app:app --port 8000
+# or: make serve CKPT=... POS_CKPT=... [PORT=8000]
+```
 
+| variable | value | why |
+|---|---|---|
+| `CPC_CKPT` | a line-model checkpoint (the Kaggle full-data run above) | required; answers requests that include the solution line |
+| `CPC_POSITION_CKPT` | a position-only checkpoint (`data.max_positions=1`) | optional; answers FEN-only requests. Without it the line model runs on a single position, which is weaker |
+| `CPC_DEVICE` | `auto` (default), `cpu`, `mps`, `cuda` | where the models run |
+| `CPC_EVAL_RESULTS` | an `eval_results.json` from `src.eval` | optional; replaces the checkpoint's thresholds with ones re-tuned on the full validation split |
+
+A checkpoint is self-describing: the number of input planes (18 or 26), the
+label list and the tuned thresholds are read from it, so base-plane and
+attack-map checkpoints are served the same way. `GET /health` reports the
+label count, device and whether a position model is loaded; `GET /labels`
+lists the vocabulary.
+
+### Requests
+
+`fen` is the only required field, and it must be **the position the solver
+sees** (side to move = solver). A Lichess CSV row stores the position one move
+earlier, so either apply its first move yourself or pass it as `setup_move`.
+
+```bash
+# FEN only (position model): the solver's position
+curl -s localhost:8000/predict -H 'content-type: application/json' \
+  -d '{"fen": "6rk/1p3Rr1/2p2Q2/8/5P2/P5P1/1Pq4P/4R1K1 b - - 0 32"}'
+# -> ["endgame", "long", "winning"], "model": "position"
+
+# Lichess CSV row: CSV FEN + setup move + solution line (line model)
 curl -s localhost:8000/predict -H 'content-type: application/json' -d '{
-  "fen": "r6k/pp2r2p/4Rp1Q/3p4/8/1N1P2R1/PqP2bPP/7K b - - 0 24", "setup_move": "f2g3",
-  "moves": ["e6e7", "b2b1", "b3c1", "b1c1", "h6c1"], "cp": 850}'
+  "fen": "6rk/1p1R1pr1/2p2Q2/8/5P2/P5P1/1Pq4P/4R1K1 w - - 3 32", "setup_move": "d7f7",
+  "moves": ["c2c5", "g1g2", "c5d5", "g2f2", "d5f7", "f6f7", "g7f7"]}'
+# -> ["endgame", "veryLong", "winning"], "model": "line"   (Lichess: advantage endgame veryLong)
 ```
 
 | field | required | meaning |
 |---|---|---|
-| `fen` | yes | the position the solver sees (side to move = solver) |
-| `setup_move` | no | if `fen` is a Lichess CSV FEN, the first move of its Moves column |
-| `moves` | no | the solution line in UCI; without it the position-only model answers (or the line model with one position) |
+| `fen` | yes | the position the solver sees, or the CSV FEN together with `setup_move` |
+| `setup_move` | no | the opponent's move that leads to the puzzle position (first move of the CSV Moves column) |
+| `moves` | no | the solution line in UCI from the solver's position; without it the position model answers |
 | `cp` | no | engine score after the line, solver POV; sets `winning` / `equality` and the fine-grained `crushing` / `advantage` by rule |
-| `decoding` | no | `argmax_groups` (default) or `independent` |
-| `apply_rules` | no | default true: length, mate depth and cp-derived tags by rule |
+| `decoding` | no | `argmax_groups` (default: at most one tag per exclusive group) or `independent` (per-class thresholds) |
+| `apply_rules` | no | default true: length, mate depth and cp-derived tags are set by cook.py's rule instead of predicted |
 
-The response carries the tags, every label's probability and threshold, which
-tags were set by rule and why, which model answered, and whether a line was
-provided. `GET /health`, `GET /labels`. `src/inference.py` exposes the same
-logic as `Predictor`.
+The response carries `tags`, every label's `probabilities` and `thresholds`,
+`rule_tags` (which tags were set by rule and why), `model` (`line` or
+`position`), `line_provided` and `positions` (how many positions the model
+saw). Sending the CSV FEN without `setup_move` classifies the wrong side's
+puzzle: for the example above it answers "mate in 2" for white instead of
+black's winning endgame. `src/inference.py` exposes the same logic as
+`Predictor` for use without HTTP.
 
 ## Project structure
 
