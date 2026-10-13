@@ -165,8 +165,35 @@ piece placement, so its capacity goes to the tags. Encoding costs 4.5x
 (17 min for the full file instead of 4) and the HDF5 grows from 1.26 GB to
 1.8 GB.
 
-Full-scale runs (`experiment=kaggle` / `experiment=full_gpu`) are the next
-results to add here.
+### Full-data run on Kaggle (base planes, 18), full test split
+
+`experiment=kaggle` on a Kaggle T4: 192-wide 4-block encoder (3.2M params),
+`q2l_grouped` gw 0.5, weighted BCE sqrt, plateau scheduler, fp16, batch 256.
+Stopped by the 11-hour session limit after 9.5 epochs (66 minutes per epoch,
+three times faster than the README's earlier estimate); early stopping never
+triggered and the learning rate was never reduced, so the model was still
+improving when it stopped. Thresholds tuned on the full 308k validation
+split, scored on the full 308k test split.
+
+| decoding | micro-F1 | macro-F1 | macro-P | macro-R | exact match | PR-AUC | dead labels |
+|---|---|---|---|---|---|---|---|
+| fixed 0.5 | 0.968 | 0.886 | 0.841 | 0.949 | 0.794 | 0.916 | 0 |
+| independent thresholds | **0.976** | **0.905** | **0.894** | 0.918 | **0.845** | 0.916 | 0 |
+| argmax within groups | 0.975 | 0.900 | 0.880 | **0.926** | 0.841 | 0.916 | 0 |
+
+Tuned per-subset F1: length 0.995, endgame type 0.992, mate depth 0.982,
+phase 0.977, attack side 0.945, mate patterns 0.908, free tactical labels
+0.865; common band 0.972, mid 0.896, rare 0.865. Every label is alive; the
+weakest are equality 0.16 (227 test positives, an engine-eval boundary),
+clearance 0.49, intermezzo 0.62, collinearMove and capturingDefender 0.70.
+Validation tuned macro-F1 by half-epoch: 0.79, 0.84, 0.86, 0.87, 0.88, 0.88,
+0.89, 0.89, 0.89, 0.90, 0.90, 0.90, 0.90, 0.90, 0.90, 0.90, 0.91, 0.91, 0.91, 0.91.
+
+Scale is what the bounded runs were missing: the same architecture went from
+0.586 to 0.905 macro-F1 with 70x the data, and the "said nothing" misses on
+fork, pin and discoveredAttack are gone. This run used the base 18 planes; the
+attack-map planes (+0.054 on the bounded protocol) have not been run at full
+scale yet.
 
 ### Refactor parity check (v1 vocabulary, same bounded protocol)
 
@@ -257,7 +284,7 @@ What `experiment=kaggle` sets and why:
 
 | setting | value | reason |
 |---|---|---|
-| encoder | 192 wide, 4 blocks (3.2M params) | ~3 GPU-hours per epoch on a T4; one session covers ~3 epochs, the weekly budget ~9 |
+| encoder | 192 wide, 4 blocks (3.2M params) | measured 66 min per epoch on a T4 (base planes); one 11 h session covers ~10 epochs |
 | input | whichever file is attached: v2x (26 planes) or v2 (18) | the kernel script sets `in_planes` to match; the first full run used base planes |
 | precision | `16-mixed` | T4 has no bf16 |
 | `max_time` | 11 h | stop before the session limit with a resumable `last.ckpt` |

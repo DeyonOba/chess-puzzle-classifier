@@ -7,10 +7,10 @@
 #   python -m src.train experiment=kaggle run_name=q2lg_full ckpt_path=/kaggle/working/logs/train/runs/q2lg_full/checkpoints/last.ckpt \
 #       paths.data_dir=... paths.log_dir=...
 #
-# Budget guide (q2l_grouped, 6M puzzles, mean 4.5 positions): the 256-wide 6-block encoder is roughly
-# 5-6 GPU-hours per epoch on a T4 at fp16; the 128-wide 3-block encoder used in experiments/ is ~1.5 h.
-# Default here: 192 wide, 4 blocks (~3 h/epoch), so one 11 h session covers ~3 epochs and the 30 h week
-# covers ~8-9 epochs; early stopping usually ends it before that.
+# Budget guide (q2l_grouped, 6M puzzles, mean 4.5 positions), measured 2026-10-12 on a T4 at fp16 with the
+# base planes: the 192-wide 4-block encoder below runs 66 min per epoch, so one 11 h session covers ~10
+# epochs. The first full run (base planes) was still improving at the 11 h limit (val tuned macro-F1 0.909);
+# resume it with ckpt_path=.../last.ckpt for more epochs, or raise the encoder (256 x 6 is ~2x the cost).
 defaults:
   - override /trainer: gpu
   - override /callbacks: early_stopping
