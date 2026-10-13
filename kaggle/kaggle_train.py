@@ -12,7 +12,7 @@ import subprocess
 import sys
 
 REPO = "https://github.com/DeyonOba/chess-puzzle-classifier.git"
-RUN_NAME = os.environ.get("RUN_NAME", "q2lg_full")
+RUN_NAME = os.environ.get("RUN_NAME")  # default: q2lg_full_<v2|v2x>, set below once the data file is known
 WORK = "/kaggle/working"
 CODE = f"{WORK}/repo"
 
@@ -40,6 +40,7 @@ data_dir = os.path.dirname(h5s[0])
 h5_name = os.path.basename(h5s[0])
 suffix = "v2x" if h5_name.endswith("v2x.h5") else "v2"
 planes = 26 if suffix == "v2x" else 18
+RUN_NAME = RUN_NAME or f"q2lg_full_{suffix}"
 data_overrides = [f"data.h5_path={h5s[0]}", f"data.splits_path={data_dir}/splits_v2.npz",
                   f"model.labels_path={data_dir}/puzzle_metadata_{suffix}.json", f"model.net.in_planes={planes}"]
 print("planes:", planes, "| file:", h5_name, flush=True)
