@@ -191,9 +191,33 @@ Validation tuned macro-F1 by half-epoch: 0.79, 0.84, 0.86, 0.87, 0.88, 0.88,
 
 Scale is what the bounded runs were missing: the same architecture went from
 0.586 to 0.905 macro-F1 with 70x the data, and the "said nothing" misses on
-fork, pin and discoveredAttack are gone. This run used the base 18 planes; the
-attack-map planes (+0.054 on the bounded protocol) have not been run at full
-scale yet.
+fork, pin and discoveredAttack are gone.
+
+### Attack-map planes at full scale: v2 vs v2x (two 11-hour Kaggle sessions)
+
+Identical setup (`experiment=kaggle`, same rows, splits, encoder, loss,
+schedule, 10 epochs each in 11 h), the only difference being the input planes.
+
+| run | decoding | micro-F1 | macro-F1 | macro-P | macro-R | exact match | PR-AUC |
+|---|---|---|---|---|---|---|---|
+| v2, 18 planes | independent thresholds | 0.976 | **0.905** | 0.894 | 0.918 | 0.845 | 0.916 |
+| v2, 18 planes | argmax within groups | 0.975 | 0.900 | 0.880 | 0.926 | 0.841 | 0.916 |
+| v2x, 26 planes | independent thresholds | 0.976 | 0.902 | 0.894 | 0.914 | **0.846** | 0.914 |
+| v2x, 26 planes | argmax within groups | 0.974 | 0.896 | 0.878 | 0.923 | 0.839 | 0.914 |
+
+No subset moved by more than 0.005 (free tactical labels 0.865 vs 0.861,
+mateIn 0.982 vs 0.985, attackSide 0.945 vs 0.950); 13 of 69 labels moved by
+more than 0.02 in either direction, the largest being clearance +0.04 and
+discoveredCheck -0.07, which is single-seed noise on labels with few test
+positives. The validation curves tell the story: v2x starts ahead (0.810 vs
+0.794 after half an epoch) and the two converge by epoch 3 (0.880 vs 0.879)
+to the same ceiling (0.905 vs 0.909 best val).
+
+Reading: the +0.054 the planes gave on 7% of an epoch was a data-efficiency
+effect. With 10 epochs over 5.5M puzzles the encoder learns attacks, pins
+and hanging pieces from piece placement on its own, and the explicit planes
+add nothing at the end while costing 4.5x the encoding time and 50% more
+storage. They remain useful for small-data or short-budget training.
 
 ### Refactor parity check (v1 vocabulary, same bounded protocol)
 

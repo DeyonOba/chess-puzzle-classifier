@@ -48,3 +48,28 @@ stopped by max_time, not by early stopping.
    (`make kaggle-dataset`), push the kernel; the script selects the 26-plane file automatically.
 2. Or resume this run for more epochs (it had not converged): attach the kernel output as a source
    and push; the script resumes from last.ckpt.
+
+## v2x (attack-map planes) at full scale, 2026-10-15
+
+Kernel version 4, dataset version 2 (puzzle_boards_v2x.h5, 26 planes), run `q2lg_full_v2x`
+(archived at `logs/train/runs/q2lg_full_v2x_kaggle`). Same config, 10 epochs in 11 h.
+
+| run | tuned micro-F1 | tuned macro-F1 | tuned exact | argmax macro-F1 | argmax exact | PR-AUC |
+|---|---|---|---|---|---|---|
+| v2 (18 planes) | 0.9764 | 0.9047 | 0.8454 | 0.8999 | 0.8410 | 0.9156 |
+| v2x (26 planes) | 0.9762 | 0.9020 | 0.8464 | 0.8963 | 0.8386 | 0.9143 |
+
+Per subset delta (v2x - v2, tuned F1): outcome -0.003, length 0.000, phase -0.004, mateIn +0.003,
+matePattern -0.005, endgameType 0.000, attackSide +0.005, free -0.004, common -0.001, mid -0.001,
+rare -0.005. Largest label moves: clearance +0.040, vukovicMate +0.027, dovetailMate +0.025, pin +0.020;
+discoveredCheck -0.065, morphysMate -0.039, discoveredAttack -0.034, cornerMate -0.028.
+
+Validation tuned macro-F1 per half epoch, v2 / v2x: 0.794/0.810, 0.844/0.845, 0.860/0.860, 0.870/0.868,
+0.880/0.879, 0.885/0.880, 0.886/0.886, 0.891/0.889, 0.895/0.891, 0.895/0.894, 0.900/0.895, 0.899/0.896,
+0.901/0.898, 0.902/0.900, 0.902/0.902, 0.901/0.902, 0.906/0.901, 0.909/0.904, 0.907/0.906, 0.908/0.905.
+Train loss per epoch is equal to the third decimal from epoch 2 on.
+
+Conclusion: the bounded-protocol gain (+0.054) was a data-efficiency effect; at full scale the planes
+are neutral (-0.003 macro-F1, +0.001 exact match, within seed noise). The encoder learns the
+interactions itself given enough epochs. Default input: pending decision (revert to base planes for
+the cheaper pipeline, or keep extended for short-budget runs).
