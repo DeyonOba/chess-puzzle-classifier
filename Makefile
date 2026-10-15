@@ -1,6 +1,6 @@
 # chess-puzzle-classifier
 #   make setup     install deps (uv)
-#   make data      download + decompress + encode HDF5 (69 labels, attack-map planes) + splits   [skips what exists; PLANES=base for 18 planes]
+#   make data      download + decompress + encode HDF5 (69 labels, 18 planes) + splits   [skips what exists; PLANES=extended for attack-map planes]
 #   make dev       100k-row dev subset for smoke runs and tests
 #   make test      pytest
 #   make train     python -m src.train $(ARGS)
@@ -13,7 +13,7 @@ PY         = $(UV) run python
 DATA_DIR  ?= data
 CSV        = $(DATA_DIR)/lichess_db_puzzle.csv
 ZST        = $(CSV).zst
-PLANES    ?= extended            # extended = 18 base + 8 attack-map planes (default); base = 18
+PLANES    ?= base                # base = 18 planes (default); extended = +8 attack-map planes (v2x)
 SUFFIX     = $(if $(filter extended,$(PLANES)),v2x,v2)
 H5         = $(DATA_DIR)/puzzle_boards_$(SUFFIX).h5
 META       = $(DATA_DIR)/puzzle_metadata_$(SUFFIX).json

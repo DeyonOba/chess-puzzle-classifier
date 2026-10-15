@@ -34,8 +34,14 @@ for root, dirs, files in os.walk("/kaggle/input"):
     depth = root.count("/") - 2
     if depth <= 2:
         print("  " * depth + os.path.basename(root) + "/", *[f for f in files][:8], flush=True)
-h5s = glob.glob("/kaggle/input/**/puzzle_boards_v2x.h5", recursive=True) or glob.glob("/kaggle/input/**/puzzle_boards_v2.h5", recursive=True)
-assert h5s, "attach the chess-puzzle-data-v2 dataset (no puzzle_boards_v2x.h5 / puzzle_boards_v2.h5 under /kaggle/input)"
+PLANES = os.environ.get("PLANES", "base")  # base (default, 18 planes) | extended (26); falls back to whichever file is attached
+preferred = "puzzle_boards_v2x.h5" if PLANES == "extended" else "puzzle_boards_v2.h5"
+other = "puzzle_boards_v2.h5" if preferred.endswith("v2x.h5") else "puzzle_boards_v2x.h5"
+h5s = glob.glob(f"/kaggle/input/**/{preferred}", recursive=True)
+if not h5s:
+    h5s = glob.glob(f"/kaggle/input/**/{other}", recursive=True)
+    print(f"WARNING: {preferred} not attached, using {other}", flush=True)
+assert h5s, "attach the chess-puzzle-data-v2 dataset (no puzzle_boards_v2.h5 / puzzle_boards_v2x.h5 under /kaggle/input)"
 data_dir = os.path.dirname(h5s[0])
 h5_name = os.path.basename(h5s[0])
 suffix = "v2x" if h5_name.endswith("v2x.h5") else "v2"

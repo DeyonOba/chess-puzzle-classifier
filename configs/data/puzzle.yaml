@@ -1,5 +1,5 @@
 _target_: src.data.puzzle_datamodule.PuzzleDataModule
-h5_path: ${paths.data_dir}/puzzle_boards_v2x.h5     # v2x = 69 labels (winning) + attack-map planes (26); preencode --planes extended
+h5_path: ${paths.data_dir}/puzzle_boards_v2.h5      # v2 = 69 labels (crushing+advantage -> winning), 18 base planes; v2x = +8 attack-map planes
 splits_path: ${paths.data_dir}/splits_v2.npz
 max_positions: null        # null = all positions in the file (T=12); 1 = position-only baseline
 batch_size: 256

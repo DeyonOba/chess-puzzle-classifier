@@ -8,7 +8,7 @@
 #       paths.data_dir=... paths.log_dir=...
 #
 # Budget guide (q2l_grouped, 6M puzzles, mean 4.5 positions), measured 2026-10-12 on a T4 at fp16 with the
-# base planes: the 192-wide 4-block encoder below runs 66 min per epoch, so one 11 h session covers ~10
+# base planes (26-plane input costs the same): the 192-wide 4-block encoder below runs 66 min per epoch, so one 11 h session covers ~10
 # epochs. The first full run (base planes) was still improving at the 11 h limit (val tuned macro-F1 0.909);
 # resume it with ckpt_path=.../last.ckpt for more epochs, or raise the encoder (256 x 6 is ~2x the cost).
 defaults:

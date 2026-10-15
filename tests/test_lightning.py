@@ -23,7 +23,7 @@ def test_config_composes_and_instantiates_model(net, tmp_path):
     cfg.model.labels = ["mate", "crushing", "advantage", "fork", "pin", "mateIn1", "mateIn2"]
     model = instantiate(cfg.model)
     assert model.net.head_type == net and model.hparams.net_spec["kwargs"]["head"] == net
-    assert cfg.model.net.in_planes == 26  # attack-map planes are the default input
+    assert cfg.model.net.in_planes == 18  # base planes are the default input (26 = attack-map planes)
     raw = model(torch.rand(2, 4, cfg.model.net.in_planes, 8, 8).round(), torch.tensor([1, 4]))
     assert model.probs(raw).shape == (2, 7)
 

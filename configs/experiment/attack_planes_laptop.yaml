@@ -1,0 +1,14 @@
+# @package _global_
+# The bounded laptop protocol on the attack-map-plane v2x file (26 planes). Helps on short budgets
+# (+0.054 macro-F1 at 7% of an epoch), neutral at full scale (README "Attack-map planes at full scale").
+#   make data PLANES=extended   (or preencode --planes extended)
+#   python -m src.train experiment=attack_planes_laptop run_name=v2x_q2lg_gw05_s0
+defaults:
+  - bounded_laptop
+tags: ["bounded", "laptop", "attack_planes"]
+data:
+  h5_path: ${paths.data_dir}/puzzle_boards_v2x.h5
+model:
+  labels_path: ${paths.data_dir}/puzzle_metadata_v2x.json
+  net:
+    in_planes: 26
