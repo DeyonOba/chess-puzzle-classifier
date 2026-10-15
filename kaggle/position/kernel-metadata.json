@@ -1,0 +1,15 @@
+{
+  "id": "gideonoba/chess-puzzle-classifier-position-only",
+  "title": "chess-puzzle-classifier-position-only",
+  "code_file": "kaggle_position.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": "true",
+  "enable_gpu": "true",
+  "enable_tpu": "false",
+  "enable_internet": "true",
+  "dataset_sources": ["gideonoba/chess-puzzle-data-v2"],
+  "competition_sources": [],
+  "kernel_sources": [],
+  "model_sources": []
+}

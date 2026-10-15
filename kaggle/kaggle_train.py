@@ -1,5 +1,8 @@
 """Kaggle script kernel: full-data training of chess-puzzle-classifier (experiment=kaggle).
 
+Environment knobs (a wrapper kernel can set them before exec-ing this file): RUN_NAME, PLANES (base|extended),
+CPC_OVERRIDES (space-separated hydra overrides).
+
 Attach the dataset <user>/chess-puzzle-data-v2 (puzzle_boards_v2.h5, puzzle_metadata_v2.json,
 splits_v2.npz). Internet must be enabled (git clone + pip). To resume a previous session, add the
 previous run's output (the kernel's own output or a dataset containing logs/.../last.ckpt) as an
@@ -55,8 +58,9 @@ resume = [f"ckpt_path={ckpts[-1]}"] if ckpts else []
 print("data:", data_dir, "| resume:", resume or "fresh run", flush=True)
 
 os.chdir(CODE)
+extra = os.environ.get("CPC_OVERRIDES", "").split()  # e.g. "data.max_positions=1 trainer.max_time=00:07:00:00"
 sh(sys.executable, "-m", "src.train", "experiment=kaggle", f"run_name={RUN_NAME}",
-   f"paths.data_dir={data_dir}", f"paths.log_dir={WORK}/logs", *data_overrides, *resume, *sys.argv[1:])
+   f"paths.data_dir={data_dir}", f"paths.log_dir={WORK}/logs", *data_overrides, *resume, *extra, *sys.argv[1:])
 
 # keep the output small: the run directory is what matters
 shutil.rmtree(f"{CODE}/.git", ignore_errors=True)

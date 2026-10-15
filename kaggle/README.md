@@ -15,3 +15,7 @@
 Monitor: `kaggle kernels status gideonoba/chess-puzzle-classifier-full-data-training`; stop from the Kaggle UI.
 
 The script prefers `puzzle_boards_v2.h5` (18 planes; `PLANES=extended` prefers the 26-plane `puzzle_boards_v2x.h5`), falls back to whichever file is attached, and sets `model.net.in_planes` to match. Dataset version 1 holds the base file, version 2 the v2x file; both full runs are in the README. Attach the version you want from the kernel's data panel, or re-upload with `make kaggle-dataset`.
+
+## Position-only model
+
+`make kaggle-push-position` runs `kaggle/position/kaggle_position.py`, a wrapper that sets `RUN_NAME=q2lg_full_pos`, `PLANES=extended` and `CPC_OVERRIDES="data.max_positions=1 trainer.max_epochs=25 trainer.max_time=00:07:00:00"` and then executes the main script fetched from GitHub. Its output is served as `CPC_POSITION_CKPT`. Status: `kaggle kernels status gideonoba/chess-puzzle-classifier-position-only`.

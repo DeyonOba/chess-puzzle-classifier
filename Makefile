@@ -86,7 +86,7 @@ clean-logs:
 KAGGLE     ?= kaggle
 KAGGLE_USER ?= $(shell python3 -c "import json,os;print(json.load(open(os.path.expanduser('~/.kaggle/kaggle.json')))['username'])")
 STAGE       = $(DATA_DIR)/kaggle_dataset
-.PHONY: kaggle-dataset kaggle-push kaggle-status
+.PHONY: kaggle-dataset kaggle-push kaggle-push-position kaggle-status
 kaggle-dataset: $(SPLITS)           # stage v2 files (hard links) + metadata, then upload (~1.3 GB)
 	mkdir -p $(STAGE)
 	for f in $(notdir $(H5)) $(notdir $(META)) $(notdir $(SPLITS)); do ln -f $(DATA_DIR)/$$f $(STAGE)/$$f; done
@@ -94,6 +94,8 @@ kaggle-dataset: $(SPLITS)           # stage v2 files (hard links) + metadata, th
 	$(KAGGLE) datasets create -p $(STAGE) --dir-mode zip || $(KAGGLE) datasets version -p $(STAGE) --dir-mode zip -m "update"
 kaggle-push:                        # push + run the training kernel (uses the GPU budget)
 	$(KAGGLE) kernels push -p kaggle
+kaggle-push-position:               # push + run the position-only kernel (data.max_positions=1, 7 h)
+	$(KAGGLE) kernels push -p kaggle/position
 kaggle-status:
 	$(KAGGLE) kernels status $(KAGGLE_USER)/chess-puzzle-classifier-full-data-training
 
