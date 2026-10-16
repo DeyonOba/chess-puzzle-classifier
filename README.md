@@ -219,6 +219,29 @@ and hanging pieces from piece placement on its own, and the explicit planes
 add nothing at the end while costing 4.5x the encoding time and 50% more
 storage. They remain useful for small-data or short-budget training.
 
+### Position-only model at full scale (for FEN-only requests)
+
+Same `experiment=kaggle` setup with `data.max_positions=1`: the model sees
+only the position the solver faces. Early stopping ended it after 12 epochs
+in 4.1 hours (v2x file, 26 planes). Full validation and test splits.
+
+| model | decoding | micro-F1 | macro-F1 | macro-P | macro-R | exact match | PR-AUC |
+|---|---|---|---|---|---|---|---|
+| line model, full | independent thresholds | 0.976 | 0.905 | 0.894 | 0.918 | 0.845 | 0.916 |
+| position-only, full | independent thresholds | 0.820 | **0.675** | 0.685 | 0.676 | 0.346 | 0.688 |
+| position-only, full | argmax within groups | 0.825 | 0.649 | 0.623 | 0.705 | **0.437** | 0.688 |
+| position-only, laptop (bounded) | independent thresholds | 0.599 | 0.350 | 0.315 | 0.430 | 0.013 | 0.316 |
+
+Tuned per-subset F1, line / position-only: phase 0.98 / 0.97, endgame type
+0.99 / 0.99, outcome 0.72 / 0.64 (winning 0.96, mate 0.93), attack side 0.95
+/ 0.79, mate patterns 0.91 / 0.73, mate depth 0.98 / 0.61 (mateIn1 0.96,
+mateIn2 0.86, mateIn3 0.66, mateIn4 0.34, mateIn5 0.21), length 1.00 / 0.65,
+free tactical labels 0.87 / 0.54. The position model knows what kind of
+position it is looking at and whether a mate is near; it cannot know how
+long the solution is or which tactic executes it, which is the expected
+split and the reason the API labels its answers. Argmax decoding is the
+better choice for this model: +0.09 exact match for -0.03 macro-F1.
+
 ### Refactor parity check (v1 vocabulary, same bounded protocol)
 
 The pre-refactor trainer (plain PyTorch loop) and the Lightning/Hydra
@@ -332,7 +355,7 @@ uv run uvicorn src.app:app --port 8000
 | variable | value | why |
 |---|---|---|
 | `CPC_CKPT` | a line-model checkpoint (the Kaggle full-data run above) | required; answers requests that include the solution line |
-| `CPC_POSITION_CKPT` | a position-only checkpoint (`data.max_positions=1`) | optional; answers FEN-only requests. Without it the line model runs on a single position, which is weaker |
+| `CPC_POSITION_CKPT` | a position-only checkpoint (`data.max_positions=1`; the Kaggle full run above, 0.675 macro-F1) | optional; answers FEN-only requests. Without it the line model runs on a single position, which is weaker |
 | `CPC_DEVICE` | `auto` (default), `cpu`, `mps`, `cuda` | where the models run |
 | `CPC_EVAL_RESULTS` | an `eval_results.json` from `src.eval` | optional; replaces the checkpoint's thresholds with ones re-tuned on the full validation split |
 
@@ -352,7 +375,7 @@ earlier, so either apply its first move yourself or pass it as `setup_move`.
 # FEN only (position model): the solver's position
 curl -s localhost:8000/predict -H 'content-type: application/json' \
   -d '{"fen": "6rk/1p3Rr1/2p2Q2/8/5P2/P5P1/1Pq4P/4R1K1 b - - 0 32"}'
-# -> ["endgame", "long", "winning"], "model": "position"
+# -> tags from the position model, "model": "position"
 
 # Lichess CSV row: CSV FEN + setup move + solution line (line model)
 curl -s localhost:8000/predict -H 'content-type: application/json' -d '{

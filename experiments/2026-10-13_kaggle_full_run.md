@@ -73,3 +73,25 @@ Conclusion: the bounded-protocol gain (+0.054) was a data-efficiency effect; at 
 are neutral (-0.003 macro-F1, +0.001 exact match, within seed noise). The encoder learns the
 interactions itself given enough epochs. Default input: pending decision (revert to base planes for
 the cheaper pipeline, or keep extended for short-budget runs).
+
+## Position-only model at full scale, 2026-10-16
+
+Kernel `gideonoba/chess-puzzle-classifier-position-only` (kaggle/position/ wrapper: data.max_positions=1,
+PLANES=extended, max_time 7 h), dataset version 2 (v2x, 26 planes). Early stopping after 12 epochs,
+4.1 h. Archived at `logs/train/runs/q2lg_full_pos_kaggle`.
+
+| model | tuned micro-F1 | tuned macro-F1 | tuned exact | argmax macro-F1 | argmax exact | PR-AUC |
+|---|---|---|---|---|---|---|
+| line v2 (full) | 0.976 | 0.905 | 0.845 | 0.900 | 0.841 | 0.916 |
+| position-only (full) | 0.820 | 0.675 | 0.346 | 0.649 | 0.437 | 0.688 |
+| position-only (laptop, bounded) | 0.599 | 0.350 | 0.013 | 0.331 | 0.056 | 0.316 |
+
+Per subset (tuned), line / position: outcome 0.717 / 0.644, length 0.995 / 0.649, phase 0.977 / 0.968,
+mateIn 0.982 / 0.607, matePattern 0.908 / 0.734, endgameType 0.992 / 0.988, attackSide 0.945 / 0.793,
+free 0.865 / 0.542; common 0.972 / 0.774, mid 0.896 / 0.710, rare 0.865 / 0.567. Weakest position-only
+labels: equality 0.04, castling 0.15, underPromotion 0.18, mateIn5 0.21, interference 0.31, veryLong 0.32.
+Validation tuned macro-F1 per half epoch: 0.526 ... 0.684 (24 validations), plateau from epoch 9.
+
+Reading: position-only is a 0.23 macro-F1 gap to the line model, concentrated exactly in line-defined
+tags; the position-defined families (phase, endgame type, winning/mate) are within 0.01-0.08. Serve it
+for FEN-only requests with argmax decoding.
