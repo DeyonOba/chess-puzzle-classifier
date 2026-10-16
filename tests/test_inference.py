@@ -135,3 +135,25 @@ def test_fastapi_batch_endpoint(ckpt, monkeypatch):
         single = client.post("/predict", json={"fen": FEN_CSV, "setup_move": SETUP, "moves": LINE, "include_embedding": True}).json()
         assert len(single["embedding"]) == body["embedding_dim"]
         assert client.post("/predict_batch", json={"items": []}).status_code == 422
+
+
+def test_position_model_with_different_plane_count(ckpt, tmp_path):
+    """Regression: a 26-plane position checkpoint beside an 18-plane line checkpoint must be encoded with its own planes."""
+    import functools, lightning as L, torch
+    from src.models.puzzle_module import PuzzleLitModule
+    from src.models.components.puzzle_classifier import PuzzleSequenceClassifier
+    from src.inference import Predictor
+    line = PuzzleLitModule.load_from_checkpoint(ckpt, map_location="cpu")
+    net = functools.partial(PuzzleSequenceClassifier, in_planes=26, hidden_dim=16, num_res_blocks=1, max_positions=12,
+                            head="q2l_grouped", head_kwargs={"num_layers": 1, "num_heads": 2})
+    pos = PuzzleLitModule(net=net, labels=line.labels)
+    pos.thresholds.fill_(0.3)
+    pos_ckpt = tmp_path / "pos26.ckpt"
+    torch.save({"state_dict": pos.state_dict(), "hyper_parameters": dict(pos.hparams), "epoch": 0, "global_step": 0,
+                "pytorch-lightning_version": L.__version__}, pos_ckpt)
+    p = Predictor(ckpt, position_ckpt_path=pos_ckpt, device="cpu")
+    assert p.model.net.in_planes == 18 and p.position_model.net.in_planes == 26
+    out = p.predict(MATE_FEN)                       # FEN only -> the 26-plane position model
+    assert out.model == "position" and out.positions == 1 and all(abs(v - 0.3) < 1e-6 for v in out.thresholds.values())
+    out = p.predict(MATE_FEN, ["a1a8"])             # with a line -> the 18-plane line model
+    assert out.model == "line" and out.positions == 2

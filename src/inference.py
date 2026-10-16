@@ -116,7 +116,10 @@ class Predictor:
         self.index = {l: i for i, l in enumerate(self.labels)}
         self.max_positions = self.model.net.ply_embedding.num_embeddings if self.model.net.ply_embedding is not None \
             else self.model.net.head.ply_embedding.num_embeddings
-        self.extended = self.model.net.in_planes == NUM_PLANES_EXTENDED  # checkpoint trained on attack-map planes
+        # each checkpoint decides its own input planes (18 base or 26 with attack maps); the two may differ
+        self.extended = self.model.net.in_planes == NUM_PLANES_EXTENDED
+        self.position_extended = (self.position_model.net.in_planes == NUM_PLANES_EXTENDED
+                                  if self.position_model is not None else self.extended)
         self.embedding_dim = self.model.net.encoder.hidden_dim
         self.thresholds = self.model.thresholds.detach().cpu().numpy().copy()
         if eval_results:
@@ -127,19 +130,23 @@ class Predictor:
 
     # -- encoding --------------------------------------------------------------------------------
     def encode(self, fen: str, moves: list[str] | None) -> tuple[torch.Tensor, torch.Tensor, chess.Board]:
-        enc = self._encode(PredictItem(fen, moves))
+        enc = self._encode(PredictItem(fen, moves), self._routes_to_position(moves))
         boards = torch.from_numpy(unpack_bitboards(enc.packed)).float()[None]  # (1, T_max, planes, 8, 8)
         return boards, torch.tensor([enc.positions]), enc.final_board
 
-    def _encode(self, item: PredictItem) -> _Encoded:
+    def _routes_to_position(self, moves) -> bool:
+        return not moves and self.position_model is not None
+
+    def _encode(self, item: PredictItem, for_position_model: bool = False) -> _Encoded:
+        extended = self.position_extended if for_position_model else self.extended
         board = chess.Board(item.fen)
         if item.setup_move:
             board.push_uci(item.setup_move)
         moves = list(item.moves or [])
-        packed = [board_to_bitboards(board, self.extended)]
+        packed = [board_to_bitboards(board, extended)]
         for u in moves[: self.max_positions - 1]:
             board.push_uci(u)
-            packed.append(board_to_bitboards(board, self.extended))
+            packed.append(board_to_bitboards(board, extended))
         for u in moves[self.max_positions - 1:]:  # beyond T: still play out, for the mate rule
             board.push_uci(u)
         T = len(packed)
@@ -158,9 +165,9 @@ class Predictor:
         FEN-only items to the position model when one is loaded."""
         if decoding not in DECODINGS:
             raise ValueError(f"decoding must be one of {DECODINGS}")
-        encoded = [self._encode(item) for item in items]
+        use_position = [self._routes_to_position(item.moves) for item in items]
+        encoded = [self._encode(item, to_pos) for item, to_pos in zip(items, use_position)]
         out: list[Prediction | None] = [None] * len(items)
-        use_position = [not e.moves and self.position_model is not None for e in encoded]
         for model_name, model, thresholds in (("line", self.model, self.thresholds),
                                               ("position", self.position_model, self.position_thresholds)):
             idx = [i for i, p in enumerate(use_position) if (p if model_name == "position" else not p)]
